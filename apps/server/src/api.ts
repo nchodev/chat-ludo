@@ -1,0 +1,314 @@
+import { randomBytes, scrypt as scryptCb, timingSafeEqual } from 'node:crypto';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { promisify } from 'node:util';
+import {
+  COLORS,
+  BOT_LEVELS,
+  ProgressError,
+  buyItem,
+  claimLoginBonus,
+  completeTutorial,
+  gameResult,
+  isShopItem,
+  levelInfo,
+  newProfile,
+  normalizeProfile,
+  recordGame,
+  setAppearance,
+  utcDay,
+  type Color,
+  type GameState,
+  type OpponentKind,
+  type Profile,
+} from '@ludo/engine';
+import * as db from './db';
+
+const scrypt = promisify(scryptCb) as (password: string, salt: Buffer, keylen: number) => Promise<Buffer>;
+
+const MAX_BODY_BYTES = 256 * 1024;
+const USERNAME_RE = /^[\p{L}\p{N}_-]{3,16}$/u;
+const MIN_PASSWORD = 6;
+/** Coins a guest can bring along when creating an account. */
+const MAX_IMPORTED_COINS = 2000;
+/** A real game against the computer lasts longer than this. */
+const MIN_LOCAL_GAME_INTERVAL_MS = 30_000;
+const LOGIN_WINDOW_MS = 5 * 60_000;
+const LOGIN_MAX_ATTEMPTS = 10;
+
+export class HttpError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16);
+  const hash = await scrypt(password, salt, 64);
+  return `scrypt$${salt.toString('base64')}$${hash.toString('base64')}`;
+}
+
+async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  const [scheme, salt, hash] = stored.split('$');
+  if (scheme !== 'scrypt' || !salt || !hash) return false;
+  const expected = Buffer.from(hash, 'base64');
+  const actual = await scrypt(password, Buffer.from(salt, 'base64'), expected.length);
+  return timingSafeEqual(actual, expected);
+}
+
+const loginAttempts = new Map<string, number[]>();
+
+function checkLoginRate(ip: string) {
+  const now = Date.now();
+  const recent = (loginAttempts.get(ip) ?? []).filter((t) => now - t < LOGIN_WINDOW_MS);
+  if (recent.length >= LOGIN_MAX_ATTEMPTS) {
+    throw new HttpError(429, 'Trop de tentatives. Réessaie dans quelques minutes.');
+  }
+  recent.push(now);
+  loginAttempts.set(ip, recent);
+}
+
+const lastLocalGame = new Map<number, number>();
+
+export interface PublicProfile {
+  username: string;
+  profile: Profile;
+  rank: number;
+}
+
+function publicProfile(user: db.User): PublicProfile {
+  return { username: user.username, profile: user.profile, rank: db.rankOf(user.id) };
+}
+
+function newSession(userId: number): string {
+  const token = randomBytes(32).toString('base64url');
+  db.createSession(token, userId);
+  return token;
+}
+
+/** Resolves a session token to a user id, or null. */
+export function userIdForToken(token: unknown): number | null {
+  return typeof token === 'string' && token.length > 0 ? db.sessionUserId(token) : null;
+}
+
+function bearer(req: IncomingMessage): string | null {
+  const header = req.headers.authorization;
+  return header?.startsWith('Bearer ') ? header.slice(7) : null;
+}
+
+function requireUser(req: IncomingMessage): db.User {
+  const id = userIdForToken(bearer(req));
+  const user = id ? db.getUser(id) : null;
+  if (!user) throw new HttpError(401, 'Connecte-toi pour continuer.');
+  return user;
+}
+
+async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_BODY_BYTES) throw new HttpError(413, 'Requête trop volumineuse.');
+    chunks.push(chunk as Buffer);
+  }
+  if (chunks.length === 0) return {};
+  try {
+    const value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    return value && typeof value === 'object' ? value : {};
+  } catch {
+    throw new HttpError(400, 'JSON invalide.');
+  }
+}
+
+function credentials(body: Record<string, unknown>) {
+  const username = typeof body.username === 'string' ? body.username.trim() : '';
+  const password = typeof body.password === 'string' ? body.password : '';
+  return { username, password };
+}
+
+function parseOpponents(raw: unknown): Partial<Record<Color, OpponentKind>> {
+  const result: Partial<Record<Color, OpponentKind>> = {};
+  if (!raw || typeof raw !== 'object') return result;
+  for (const color of COLORS) {
+    const o = (raw as Record<string, any>)[color];
+    if (o?.kind === 'bot' && BOT_LEVELS.includes(o.level)) result[color] = { kind: 'bot', level: o.level };
+    else if (o?.kind === 'human') result[color] = { kind: 'human', online: false };
+  }
+  return result;
+}
+
+/** Applies a profile change for the signed-in user and returns the updated public profile. */
+function mutate<T extends object>(user: db.User, change: (p: Profile) => { profile: Profile; result: T }) {
+  try {
+    const result = db.updateProfile(user.id, change);
+    const updated = db.getUser(user.id)!;
+    return { ...result, ...publicProfile(updated) };
+  } catch (err) {
+    if (err instanceof ProgressError) throw new HttpError(400, err.message);
+    throw err;
+  }
+}
+
+type Handler = (req: IncomingMessage, body: Record<string, unknown>) => Promise<unknown> | unknown;
+
+/** Behind a reverse proxy (TRUST_PROXY=1), the client address comes from X-Forwarded-For. */
+function clientIp(req: IncomingMessage): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (process.env.TRUST_PROXY && typeof forwarded === 'string') return forwarded.split(',')[0].trim();
+  return req.socket.remoteAddress ?? '';
+}
+
+const routes: Record<string, Handler> = {
+  'POST /api/register': async (req, body) => {
+    checkLoginRate(clientIp(req));
+    const { username, password } = credentials(body);
+    if (!USERNAME_RE.test(username)) {
+      throw new HttpError(400, 'Pseudo : 3 à 16 caractères (lettres, chiffres, - ou _).');
+    }
+    if (password.length < MIN_PASSWORD) throw new HttpError(400, `Mot de passe : au moins ${MIN_PASSWORD} caractères.`);
+    if (db.usernameTaken(username)) throw new HttpError(409, 'Ce pseudo est déjà pris.');
+
+    const guest = body.guestProfile ? normalizeProfile(body.guestProfile) : newProfile();
+    const profile = { ...guest, coins: Math.min(guest.coins, MAX_IMPORTED_COINS) };
+    const user = db.createUser(username, await hashPassword(password), profile);
+    return { token: newSession(user.id), ...publicProfile(user) };
+  },
+
+  'POST /api/login': async (req, body) => {
+    checkLoginRate(clientIp(req));
+    const { username, password } = credentials(body);
+    const user = db.findUserForLogin(username);
+    if (!user || !(await verifyPassword(password, user.passwordHash))) {
+      throw new HttpError(401, 'Pseudo ou mot de passe incorrect.');
+    }
+    return { token: newSession(user.id), ...publicProfile(user) };
+  },
+
+  'POST /api/logout': (req) => {
+    const token = bearer(req);
+    if (token) db.deleteSession(token);
+    return { ok: true };
+  },
+
+  'GET /api/me': (req) => publicProfile(requireUser(req)),
+
+  'POST /api/shop/buy': (req, body) => {
+    const item = body.item;
+    if (!isShopItem(item)) throw new HttpError(400, 'Article inconnu.');
+    return mutate(requireUser(req), (p) => ({ profile: buyItem(p, item), result: {} }));
+  },
+
+  'POST /api/appearance': (req, body) => {
+    const patch: Record<string, string> = {};
+    for (const key of ['board', 'dice', 'pawn']) if (typeof body[key] === 'string') patch[key] = body[key] as string;
+    return mutate(requireUser(req), (p) => ({ profile: setAppearance(p, patch), result: {} }));
+  },
+
+  'POST /api/daily/login': (req) =>
+    mutate(requireUser(req), (p) => {
+      const { profile, coins, streak } = claimLoginBonus(p, utcDay());
+      return { profile, result: { coins, streak } };
+    }),
+
+  'POST /api/tutorial/complete': (req) =>
+    mutate(requireUser(req), (p) => {
+      const done = completeTutorial(p);
+      return { profile: done?.profile ?? p, result: { summary: done?.summary ?? null } };
+    }),
+
+  /** Result of a game played on the device (against the computer or friends on the same screen). */
+  'POST /api/games/local': (req, body) => {
+    const user = requireUser(req);
+    const state = body.state as GameState | undefined;
+    const color = body.color;
+    if (!state || typeof state !== 'object' || typeof state.id !== 'string' || !COLORS.includes(color as Color)) {
+      throw new HttpError(400, 'Résultat de partie invalide.');
+    }
+    const now = Date.now();
+    if (now - (lastLocalGame.get(user.id) ?? 0) < MIN_LOCAL_GAME_INTERVAL_MS) {
+      throw new HttpError(429, 'Partie trop courte pour être comptée.');
+    }
+    const opponents = parseOpponents(body.opponents);
+    let result;
+    try {
+      result = gameResult(state, color as Color, (c) => opponents[c] ?? { kind: 'human', online: false }, false);
+    } catch {
+      throw new HttpError(400, 'Résultat de partie invalide.');
+    }
+    if (!result) throw new HttpError(400, "La partie n'est pas terminée.");
+    lastLocalGame.set(user.id, now);
+    return mutate(user, (p) => {
+      const recorded = recordGame(p, result, utcDay());
+      return { profile: recorded?.profile ?? p, result: { summary: recorded?.summary ?? null } };
+    });
+  },
+
+  'GET /api/leaderboard': (req) => {
+    const id = userIdForToken(bearer(req));
+    const user = id ? db.getUser(id) : null;
+    return {
+      players: db.leaderboard().map((row, i) => ({ rank: i + 1, ...row, level: levelInfo(row.xp).level })),
+      you: user ? { username: user.username, rank: db.rankOf(user.id), xp: user.profile.xp, level: levelInfo(user.profile.xp).level } : null,
+    };
+  },
+};
+
+/** Records a finished online game for a signed-in player; null if already counted. */
+export function recordOnlineGame(userId: number, state: GameState, color: Color, opponentKind: (c: Color) => OpponentKind) {
+  const result = gameResult(state, color, opponentKind, true);
+  if (!result) return null;
+  return db.updateProfile(userId, (p) => {
+    const recorded = recordGame(p, result, utcDay());
+    return { profile: recorded?.profile ?? p, result: recorded?.summary ?? null };
+  });
+}
+
+export function usernameOf(userId: number): string | null {
+  return db.getUser(userId)?.username ?? null;
+}
+
+const ALLOWED_ORIGINS = process.env.CORS_ORIGIN?.split(',').map((o) => o.trim());
+
+function setCors(req: IncomingMessage, res: ServerResponse) {
+  const origin = req.headers.origin;
+  const allowed = !ALLOWED_ORIGINS || (origin && ALLOWED_ORIGINS.includes(origin));
+  if (allowed) res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+}
+
+function send(res: ServerResponse, status: number, data: unknown) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(data));
+}
+
+/** Handles /api/* requests; returns false for other paths. */
+export async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+  const path = (req.url ?? '').split('?')[0];
+  if (!path.startsWith('/api/')) return false;
+  setCors(req, res);
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return true;
+  }
+  const handler = routes[`${req.method} ${path}`];
+  if (!handler) {
+    send(res, 404, { error: 'Introuvable.' });
+    return true;
+  }
+  try {
+    const body = req.method === 'POST' ? await readJson(req) : {};
+    send(res, 200, await handler(req, body));
+  } catch (err) {
+    if (err instanceof HttpError) send(res, err.status, { error: err.message });
+    else {
+      console.error(err);
+      send(res, 500, { error: 'Erreur du serveur.' });
+    }
+  }
+  return true;
+}

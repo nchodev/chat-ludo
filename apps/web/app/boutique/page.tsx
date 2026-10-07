@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { REWARDS } from '@ludo/engine';
+import { ACHIEVEMENTS, DAILY_CHALLENGES, LEVEL_UP_COINS_PER_LEVEL, LOGIN_REWARDS, REWARDS } from '@ludo/engine';
 import { AppearancePicker } from '@/components/AppearancePicker';
 import { CoinAmount } from '@/components/Coins';
 
@@ -13,6 +13,10 @@ const EARNINGS: { label: string; coins: number; note?: string }[] = [
   { label: 'Victoire contre un joueur sur cet écran', coins: REWARDS.localHuman },
   { label: 'Par pion capturé', coins: REWARDS.perCapture, note: `max ${REWARDS.maxCaptureBonus}` },
   { label: 'Aucun de tes pions capturé', coins: REWARDS.flawless },
+  { label: 'Bonus de connexion quotidien', coins: LOGIN_REWARDS[0], note: `à ${LOGIN_REWARDS.at(-1)} (7ᵉ jour)` },
+  { label: 'Défi du jour réussi', coins: Math.min(...DAILY_CHALLENGES.map((c) => c.coins)), note: `à ${Math.max(...DAILY_CHALLENGES.map((c) => c.coins))}` },
+  { label: 'Badge débloqué', coins: Math.min(...ACHIEVEMENTS.map((a) => a.coins)), note: `à ${Math.max(...ACHIEVEMENTS.map((a) => a.coins))}` },
+  { label: 'Niveau supérieur', coins: LEVEL_UP_COINS_PER_LEVEL * 2, note: `puis +${LEVEL_UP_COINS_PER_LEVEL} par niveau` },
 ];
 
 export default function ShopPage() {

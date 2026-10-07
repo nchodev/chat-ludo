@@ -10,8 +10,6 @@ export type Palette = Record<Color, ColorShades>;
 
 export interface BoardTheme {
   id: string;
-  /** Cost in coins in the shop; 0 means free. */
-  price: number;
   name: string;
   icon: string;
   colors: Palette;
@@ -37,7 +35,6 @@ const CLASSIC_COLORS: Palette = {
 export const BOARD_THEMES: BoardTheme[] = [
   {
     id: 'classic',
-    price: 0,
     name: 'Classique',
     icon: '🎲',
     colors: CLASSIC_COLORS,
@@ -52,7 +49,6 @@ export const BOARD_THEMES: BoardTheme[] = [
   },
   {
     id: 'wood',
-    price: 150,
     name: 'Bois',
     icon: '🪵',
     colors: {
@@ -73,7 +69,6 @@ export const BOARD_THEMES: BoardTheme[] = [
   },
   {
     id: 'neon',
-    price: 300,
     name: 'Néon',
     icon: '🌃',
     colors: {
@@ -93,7 +88,6 @@ export const BOARD_THEMES: BoardTheme[] = [
   },
   {
     id: 'pastel',
-    price: 100,
     name: 'Pastel',
     icon: '🍬',
     colors: {
@@ -113,7 +107,6 @@ export const BOARD_THEMES: BoardTheme[] = [
   },
   {
     id: 'wax',
-    price: 250,
     name: 'Wax',
     icon: '🌍',
     colors: {
@@ -136,8 +129,6 @@ export const BOARD_THEMES: BoardTheme[] = [
 
 export interface DiceStyle {
   id: string;
-  /** Cost in coins in the shop; 0 means free. */
-  price: number;
   name: string;
   face: (c: ColorShades) => string;
   pip: (c: ColorShades) => string;
@@ -152,7 +143,6 @@ export interface DiceStyle {
 export const DICE_STYLES: DiceStyle[] = [
   {
     id: 'classic',
-    price: 0,
     name: 'Classique',
     face: () => 'linear-gradient(145deg, #ffffff 0%, #e2e8f0 100%)',
     pip: () => '#1e293b',
@@ -161,7 +151,6 @@ export const DICE_STYLES: DiceStyle[] = [
   },
   {
     id: 'player',
-    price: 0,
     name: 'Couleur',
     face: (c) => `linear-gradient(145deg, ${c.main} 0%, ${c.dark} 100%)`,
     pip: () => '#ffffff',
@@ -170,7 +159,6 @@ export const DICE_STYLES: DiceStyle[] = [
   },
   {
     id: 'wood',
-    price: 100,
     name: 'Bois',
     face: () => 'linear-gradient(145deg, #e8bd85 0%, #a0693a 100%)',
     pip: () => '#3b2412',
@@ -179,7 +167,6 @@ export const DICE_STYLES: DiceStyle[] = [
   },
   {
     id: 'neon',
-    price: 200,
     name: 'Néon',
     face: () => 'linear-gradient(145deg, #1a1a3d 0%, #0b0b1e 100%)',
     pip: (c) => c.main,
@@ -189,7 +176,6 @@ export const DICE_STYLES: DiceStyle[] = [
   },
   {
     id: 'gold',
-    price: 400,
     name: 'Or',
     face: () => 'linear-gradient(145deg, #fef3c7 0%, #eab308 55%, #a16207 100%)',
     pip: () => '#422006',
@@ -198,7 +184,6 @@ export const DICE_STYLES: DiceStyle[] = [
   },
   {
     id: 'numbers',
-    price: 50,
     name: 'Chiffres',
     face: () => 'linear-gradient(145deg, #ffffff 0%, #e2e8f0 100%)',
     pip: () => '#1e293b',
@@ -211,19 +196,17 @@ export const DICE_STYLES: DiceStyle[] = [
 export interface PawnStyle {
   id: string;
   name: string;
-  /** Cost in coins in the shop; 0 means free. */
-  price: number;
   /** 'board' uses the pawns that come with the board theme. */
   shape: 'board' | 'cone' | 'star' | 'gem' | 'animal' | 'crown';
 }
 
 export const PAWN_STYLES: PawnStyle[] = [
-  { id: 'board', name: 'Du plateau', price: 0, shape: 'board' },
-  { id: 'cone', name: 'Traditionnel', price: 100, shape: 'cone' },
-  { id: 'star', name: 'Étoiles', price: 150, shape: 'star' },
-  { id: 'gem', name: 'Diamants', price: 200, shape: 'gem' },
-  { id: 'animal', name: 'Animaux', price: 250, shape: 'animal' },
-  { id: 'crown', name: 'Couronnes', price: 400, shape: 'crown' },
+  { id: 'board', name: 'Du plateau', shape: 'board' },
+  { id: 'cone', name: 'Traditionnel', shape: 'cone' },
+  { id: 'star', name: 'Étoiles', shape: 'star' },
+  { id: 'gem', name: 'Diamants', shape: 'gem' },
+  { id: 'animal', name: 'Animaux', shape: 'animal' },
+  { id: 'crown', name: 'Couronnes', shape: 'crown' },
 ];
 
 export const DEFAULT_BOARD_THEME = BOARD_THEMES[0];

@@ -1,6 +1,7 @@
 import type { BotLevel } from './ai';
 import { COLORS, type Color } from './constants';
 import { DEFAULT_RULES, type GameState, type Rules } from './game';
+import type { ProgressSummary } from './progress';
 import type { ReactionMessage } from './reactions';
 
 export type SeatKind = 'empty' | 'human' | 'bot';
@@ -22,28 +23,49 @@ export interface RoomView {
   game: GameState | null;
   you: Color | null;
   isHost: boolean;
+  /** What you earned in the game that just ended, if you are signed in. */
+  result: ProgressSummary | null;
+  /** Players who asked for a rematch after the game ended. */
+  rematch: Color[];
 }
 
 export type Ack<T = object> = (res: ({ ok: true } & T) | { ok: false; error: string }) => void;
 
 export interface ClientToServerEvents {
-  'room:create': (payload: { name: string; rules?: Partial<Rules> }, ack: Ack<{ code: string; token: string }>) => void;
-  'room:join': (payload: { code: string; name: string; token?: string }, ack: Ack<{ token: string }>) => void;
+  /** `auth` is the account session token of a signed-in player. */
+  'room:create': (
+    payload: { name: string; rules?: Partial<Rules>; auth?: string },
+    ack: Ack<{ code: string; token: string }>,
+  ) => void;
+  'room:join': (payload: { code: string; name: string; token?: string; auth?: string }, ack: Ack<{ token: string }>) => void;
   'room:leave': () => void;
   'room:takeSeat': (payload: { color: Color }, ack?: Ack) => void;
   'room:setSeat': (payload: { color: Color; kind: 'empty' | 'bot'; botLevel?: BotLevel }, ack?: Ack) => void;
   'room:setRules': (payload: { rules: Partial<Rules> }, ack?: Ack) => void;
   'room:start': (ack?: Ack) => void;
   'room:backToLobby': (ack?: Ack) => void;
+  'room:rematch': (ack?: Ack) => void;
   'game:roll': (ack?: Ack) => void;
   'game:move': (payload: { pawn: number }, ack?: Ack) => void;
   'game:react': (payload: { reaction: string }) => void;
+  'match:join': (payload: { name: string; auth?: string }, ack?: Ack) => void;
+  'match:leave': () => void;
+}
+
+export interface MatchStatus {
+  waiting: number;
+  /** When the game will start (ms timestamp), or null while waiting for opponents. */
+  startsAt: number | null;
+  /** When a computer will join a lone player (ms timestamp). */
+  botAt: number | null;
 }
 
 export interface ServerToClientEvents {
   'room:state': (room: RoomView) => void;
   'room:closed': (reason: string) => void;
   'room:reaction': (message: ReactionMessage) => void;
+  'match:status': (status: MatchStatus) => void;
+  'match:found': (match: { code: string; token: string }) => void;
 }
 
 export const BOT_LEVELS: BotLevel[] = ['easy', 'medium', 'hard'];

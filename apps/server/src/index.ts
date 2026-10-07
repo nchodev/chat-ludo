@@ -11,6 +11,8 @@ import {
   type ReactionMessage,
   type ServerToClientEvents,
 } from '@ludo/engine';
+import { handleApi, userIdForToken, usernameOf } from './api';
+import { Matchmaker } from './matchmaking';
 import { RoomError, RoomManager, type Room } from './rooms';
 
 interface SocketData {
@@ -23,16 +25,27 @@ type LudoSocket = Socket<ClientToServerEvents, ServerToClientEvents, object, Soc
 const PORT = Number(process.env.PORT ?? 4000);
 const ROOM_TTL_MS = 30 * 60_000;
 
-const httpServer = createServer((req, res) => {
+const httpServer = createServer(async (req, res) => {
+  if (await handleApi(req, res)) return;
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('Ludo server OK');
 });
 
+/** The account behind a session token, with the name to display in rooms. */
+function account(auth: unknown): { userId?: number; name?: string } {
+  const userId = userIdForToken(auth) ?? undefined;
+  return userId ? { userId, name: usernameOf(userId) ?? undefined } : {};
+}
+
 const io = new Server<ClientToServerEvents, ServerToClientEvents, object, SocketData>(httpServer, {
-  cors: { origin: process.env.CORS_ORIGIN?.split(',') ?? '*' },
+  cors: { origin: process.env.CORS_ORIGIN?.split(',').map((o) => o.trim()) ?? '*' },
 });
 
 const rooms = new RoomManager(broadcast, broadcastReaction);
+const matchmaker = new Matchmaker(rooms, {
+  status: (socketId, status) => io.sockets.sockets.get(socketId)?.emit('match:status', status),
+  found: (socketId, match) => io.sockets.sockets.get(socketId)?.emit('match:found', match),
+});
 
 function broadcast(room: Room) {
   for (const socket of io.sockets.sockets.values()) {
@@ -90,7 +103,8 @@ function leaveCurrentRoom(socket: LudoSocket) {
 io.on('connection', (socket: LudoSocket) => {
   socket.on('room:create', (payload, ack) => {
     leaveCurrentRoom(socket);
-    const { room, token } = rooms.create(cleanName(payload?.name), sanitizeRules(payload?.rules), socket.id);
+    const { userId, name } = account(payload?.auth);
+    const { room, token } = rooms.create(name ?? cleanName(payload?.name), sanitizeRules(payload?.rules), socket.id, userId);
     socket.data = { code: room.code, token };
     ack({ ok: true, code: room.code, token });
     broadcast(room);
@@ -103,11 +117,13 @@ io.on('connection', (socket: LudoSocket) => {
       return;
     }
     if (socket.data.code !== room.code) leaveCurrentRoom(socket);
+    const { userId, name } = account(payload.auth);
     const token = rooms.join(
       room,
-      cleanName(payload.name),
+      name ?? cleanName(payload.name),
       socket.id,
       typeof payload.token === 'string' ? payload.token : undefined,
+      userId,
     );
     socket.data = { code: room.code, token };
     ack({ ok: true, token });
@@ -148,6 +164,7 @@ io.on('connection', (socket: LudoSocket) => {
 
   socket.on('room:start', inRoom(socket, (room, token) => rooms.start(room, token)));
   socket.on('room:backToLobby', inRoom(socket, (room, token) => rooms.backToLobby(room, token)));
+  socket.on('room:rematch', inRoom(socket, (room, token) => rooms.rematch(room, token)));
   socket.on('game:roll', inRoom(socket, (room, token) => rooms.roll(room, token)));
 
   socket.on(
@@ -166,7 +183,17 @@ io.on('connection', (socket: LudoSocket) => {
     }),
   );
 
-  socket.on('disconnect', () => leaveCurrentRoom(socket));
+  socket.on('match:join', (payload, ack) => {
+    const { userId, name } = account(payload?.auth);
+    matchmaker.join({ socketId: socket.id, name: name ?? cleanName(payload?.name), userId });
+    ack?.({ ok: true });
+  });
+  socket.on('match:leave', () => matchmaker.leave(socket.id));
+
+  socket.on('disconnect', () => {
+    matchmaker.leave(socket.id);
+    leaveCurrentRoom(socket);
+  });
 });
 
 setInterval(() => {

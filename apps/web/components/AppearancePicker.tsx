@@ -1,7 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { HOME_COLUMN_START, createGame, type GameState } from '@ludo/engine';
+import {
+  HOME_COLUMN_START,
+  createGame,
+  itemPrice,
+  ownsItem,
+  type GameState,
+  type ShopCategory,
+  type ShopItem,
+} from '@ludo/engine';
 import { Board } from './Board';
 import { DiceFace } from './Dice';
 import { Sheet } from './Sheet';
@@ -10,7 +18,7 @@ import { useAppearance } from '@/lib/appearance';
 import { sfx } from '@/lib/sound';
 import { BOARD_THEMES, DICE_STYLES, PAWN_STYLES } from '@/lib/themes';
 import { PawnPreview } from './Pawn';
-import { useWallet, type ShopItem } from '@/lib/wallet';
+import { buy, useProfile } from '@/lib/profile';
 
 const DEMO_STATE: GameState = (() => {
   const game = createGame([
@@ -52,22 +60,31 @@ function PriceTag({ price, affordable }: { price: number; affordable: boolean })
 
 export function AppearancePicker() {
   const { board, dice, pawn, update } = useAppearance();
-  const { coins, owns, buy } = useWallet();
+  const { profile } = useProfile();
+  const coins = profile.coins;
   const [message, setMessage] = useState<string | null>(null);
+  const owns = (item: ShopItem) => ownsItem(profile, item);
+  const priceOf = (category: ShopCategory, id: string) => itemPrice(`${category}:${id}` as ShopItem);
 
   /** Equips an item, buying it first if needed. */
-  const pick = (item: ShopItem, name: string, price: number, equip: () => void) => {
+  const pick = async (category: ShopCategory, id: string, name: string) => {
+    const item = `${category}:${id}` as ShopItem;
+    const price = itemPrice(item);
     setMessage(null);
-    if (owns(item, price)) return equip();
-    if (coins < price) {
-      setMessage(`Il te manque ${price - coins} pièces pour « ${name} ». Gagne des parties pour en obtenir !`);
-      return;
-    }
-    if (!confirm(`Acheter « ${name} » pour ${price} pièces ?`)) return;
-    if (buy(item, price)) {
-      equip();
-      sfx.finish();
-      setMessage(`« ${name} » débloqué !`);
+    try {
+      if (!owns(item)) {
+        if (coins < price) {
+          setMessage(`Il te manque ${price - coins} pièces pour « ${name} ». Gagne des parties pour en obtenir !`);
+          return;
+        }
+        if (!confirm(`Acheter « ${name} » pour ${price} pièces ?`)) return;
+        await buy(item);
+        sfx.finish();
+        setMessage(`« ${name} » débloqué !`);
+      }
+      await update({ [category]: id });
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Achat impossible.');
     }
   };
 
@@ -84,12 +101,13 @@ export function AppearancePicker() {
         <div className="grid grid-cols-2 gap-3">
           {BOARD_THEMES.map((theme) => {
             const selected = board.id === theme.id;
-            const owned = owns(`board:${theme.id}`, theme.price);
+            const owned = owns(`board:${theme.id}` as ShopItem);
+            const price = priceOf('board', theme.id);
             return (
               <button
                 key={theme.id}
                 type="button"
-                onClick={() => pick(`board:${theme.id}`, theme.name, theme.price, () => update({ board: theme.id }))}
+                onClick={() => pick('board', theme.id, theme.name)}
                 aria-pressed={selected}
                 className={`relative flex flex-col gap-2 rounded-2xl p-2 text-left transition active:scale-[0.97] ${
                   selected ? 'bg-white/15 ring-2 ring-emerald-400' : 'bg-white/5'
@@ -107,7 +125,7 @@ export function AppearancePicker() {
                   {owned ? theme.icon : '🔒'} {theme.name}
                 </span>
                 {selected && <Check />}
-                {!owned && <PriceTag price={theme.price} affordable={coins >= theme.price} />}
+                {!owned && <PriceTag price={price} affordable={coins >= price} />}
               </button>
             );
           })}
@@ -119,12 +137,13 @@ export function AppearancePicker() {
         <div className="grid grid-cols-3 gap-3">
           {PAWN_STYLES.map((style) => {
             const selected = pawn.id === style.id;
-            const owned = owns(`pawn:${style.id}`, style.price);
+            const owned = owns(`pawn:${style.id}` as ShopItem);
+            const price = priceOf('pawn', style.id);
             return (
               <button
                 key={style.id}
                 type="button"
-                onClick={() => pick(`pawn:${style.id}`, `Pions ${style.name.toLowerCase()}`, style.price, () => update({ pawn: style.id }))}
+                onClick={() => pick('pawn', style.id, `Pions ${style.name.toLowerCase()}`)}
                 aria-pressed={selected}
                 className={`relative flex flex-col items-center gap-2 rounded-2xl p-2 pt-5 transition active:scale-[0.97] ${
                   selected ? 'bg-white/15 ring-2 ring-emerald-400' : 'bg-white/5'
@@ -138,7 +157,7 @@ export function AppearancePicker() {
                   {style.name}
                 </span>
                 {selected && <Check />}
-                {!owned && <PriceTag price={style.price} affordable={coins >= style.price} />}
+                {!owned && <PriceTag price={price} affordable={coins >= price} />}
               </button>
             );
           })}
@@ -150,12 +169,13 @@ export function AppearancePicker() {
         <div className="grid grid-cols-3 gap-3">
           {DICE_STYLES.map((style, i) => {
             const selected = dice.id === style.id;
-            const owned = owns(`dice:${style.id}`, style.price);
+            const owned = owns(`dice:${style.id}` as ShopItem);
+            const price = priceOf('dice', style.id);
             return (
               <button
                 key={style.id}
                 type="button"
-                onClick={() => pick(`dice:${style.id}`, `Dés ${style.name.toLowerCase()}`, style.price, () => update({ dice: style.id }))}
+                onClick={() => pick('dice', style.id, `Dés ${style.name.toLowerCase()}`)}
                 aria-pressed={selected}
                 className={`relative flex flex-col items-center gap-3 rounded-2xl px-2 pt-5 pb-2 transition active:scale-[0.97] ${
                   selected ? 'bg-white/15 ring-2 ring-emerald-400' : 'bg-white/5'
@@ -169,7 +189,7 @@ export function AppearancePicker() {
                   {style.name}
                 </span>
                 {selected && <Check />}
-                {!owned && <PriceTag price={style.price} affordable={coins >= style.price} />}
+                {!owned && <PriceTag price={price} affordable={coins >= price} />}
               </button>
             );
           })}

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { getSessionToken, useProfile } from '@/lib/profile';
 import { getSocket, getStoredName, storeName, storeRoomToken } from '@/lib/socket';
 
 export default function OnlinePage() {
@@ -11,8 +12,9 @@ export default function OnlinePage() {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { session } = useProfile();
 
-  useEffect(() => setName(getStoredName()), []);
+  useEffect(() => setName(session?.username ?? getStoredName()), [session]);
 
   const create = () => {
     if (!name.trim()) return setError('Choisis d’abord un pseudo.');
@@ -24,7 +26,7 @@ export default function OnlinePage() {
       setBusy(false);
       setError('Impossible de joindre le serveur de jeu.');
     }, 5000);
-    socket.emit('room:create', { name: name.trim() }, (res) => {
+    socket.emit('room:create', { name: name.trim(), auth: getSessionToken() }, (res) => {
       clearTimeout(timeout);
       setBusy(false);
       if (!res.ok) return setError(res.error);
@@ -63,10 +65,19 @@ export default function OnlinePage() {
             value={name}
             maxLength={20}
             onChange={(e) => setName(e.target.value)}
+            readOnly={!!session}
             placeholder="Ex : Awa"
             className="min-w-0 flex-1 rounded-2xl bg-black/25 px-4 py-3 text-lg font-medium outline-none ring-white/40 placeholder:text-white/30 focus:ring-2"
           />
         </div>
+        {!session && (
+          <p className="text-xs text-white/50">
+            <Link href="/compte" className="font-semibold text-emerald-300">
+              Crée un compte
+            </Link>{' '}
+            pour garder tes pièces et apparaître au classement.
+          </p>
+        )}
       </section>
 
       <section className="card flex flex-col gap-3 p-4">

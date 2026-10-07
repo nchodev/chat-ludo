@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useWallet } from '@/lib/wallet';
+import { useProfile } from '@/lib/profile';
 
 export function CoinIcon({ size = 18 }: { size?: number }) {
   return (
@@ -31,14 +31,15 @@ export function CoinAmount({ value, size = 18, className = '' }: { value: number
 
 /** Current balance, linking to the shop. */
 export function CoinBadge() {
-  const { coins, ready } = useWallet();
+  const { profile, ready } = useProfile();
+  const coins = ready ? profile.coins : 0;
   return (
     <Link
       href="/boutique"
       className="inline-flex items-center gap-2 rounded-full bg-white/10 py-1 pr-3 pl-1 text-sm transition active:scale-95"
       aria-label={`${coins} pièces, ouvrir la boutique`}
     >
-      <CoinAmount value={ready ? coins : 0} size={24} />
+      <CoinAmount value={coins} size={24} />
       <span className="text-white/50">🛒</span>
     </Link>
   );

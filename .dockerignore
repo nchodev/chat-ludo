@@ -1,0 +1,7 @@
+**/node_modules
+**/.next
+**/*.tsbuildinfo
+apps/server/data
+.git
+.env
+.env*.local

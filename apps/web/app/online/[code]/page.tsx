@@ -6,12 +6,14 @@ import { useEffect, useState } from 'react';
 import { TEAMMATE, areDiagonal, type BotLevel, type Color, type PublicSeat, type RoomView } from '@ludo/engine';
 import { AppearanceCard } from '@/components/AppearancePicker';
 import { GameView } from '@/components/GameView';
+import { InviteButtons } from '@/components/InviteButtons';
 import { NameForm } from '@/components/NameForm';
 import { Avatar } from '@/components/PlayerPanel';
 import { RulesCard } from '@/components/RulesCard';
 import { COLOR_DARK, COLOR_HEX } from '@/lib/board';
 import { BOT_LEVEL_LABEL, COLOR_LABEL } from '@/lib/labels';
 import { getStoredName, storeName } from '@/lib/socket';
+import { useProfile } from '@/lib/profile';
 import { useReactionBubbles } from '@/lib/reactions';
 import { useOnlineRoom, useRoomReactions } from '@/lib/useOnlineRoom';
 
@@ -29,12 +31,14 @@ export default function RoomPage() {
   const router = useRouter();
   const [name, setName] = useState<string | null>(null);
   const [nameChecked, setNameChecked] = useState(false);
+  const { session, ready } = useProfile();
   const { room, joinError, toast, connected, actions } = useOnlineRoom(code, name);
 
   useEffect(() => {
-    setName(getStoredName() || null);
+    if (!ready) return;
+    setName(session?.username ?? (getStoredName() || null));
     setNameChecked(true);
-  }, []);
+  }, [ready, session]);
 
   const quit = () => {
     actions.leave();
@@ -137,27 +141,50 @@ function OnlineGame({ room, actions, onQuit }: { room: RoomView; actions: Action
       }
       rewardColors={room.you && !youForfeited ? [room.you] : []}
       online
+      serverSummary={room.result}
       notice={youForfeited && game.phase !== 'over' ? 'Tu as quitté la partie : tu as perdu. Tu peux regarder la fin.' : undefined}
-      overlayActions={
-        room.isHost ? (
-          <>
-            <button type="button" onClick={actions.start} className="btn btn-primary">
-              Rejouer
-            </button>
-            <button type="button" onClick={actions.backToLobby} className="btn btn-ghost">
-              Retour au salon
-            </button>
-          </>
-        ) : (
-          <p className="text-sm text-white/60">En attente de l’hôte pour la prochaine partie…</p>
-        )
-      }
+      overlayActions={<RematchActions room={room} actions={actions} />}
     />
   );
 }
 
+/** End-of-game buttons: everyone can vote for a rematch; the host can also go back to the lobby. */
+function RematchActions({ room, actions }: { room: RoomView; actions: Actions }) {
+  const humans = room.seats.filter((s) => s.kind === 'human');
+  const waitingFor = humans.filter((s) => s.connected && !room.rematch.includes(s.color));
+  const voted = !!room.you && room.rematch.includes(room.you);
+  const seated = !!room.you && humans.some((s) => s.color === room.you);
+  const opponentsLeft = room.seats.filter((s) => s.kind !== 'empty').length < 2;
+
+  return (
+    <>
+      {seated && !opponentsLeft && (
+        <button type="button" onClick={actions.rematch} disabled={voted} className="btn btn-primary">
+          {voted ? `En attente : ${waitingFor.map((s) => s.name).join(', ')}…` : '🔁 Revanche !'}
+        </button>
+      )}
+      {room.rematch.length > 0 && !voted && seated && (
+        <p className="text-sm text-amber-200">
+          {room.seats
+            .filter((s) => room.rematch.includes(s.color))
+            .map((s) => s.name)
+            .join(', ')}{' '}
+          veut une revanche !
+        </p>
+      )}
+      {opponentsLeft && <p className="text-sm text-white/60">Tes adversaires sont partis.</p>}
+      {room.isHost ? (
+        <button type="button" onClick={actions.backToLobby} className="btn btn-ghost">
+          Retour au salon
+        </button>
+      ) : (
+        !seated && <p className="text-sm text-white/60">En attente des joueurs…</p>
+      )}
+    </>
+  );
+}
+
 function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; onQuit: () => void }) {
-  const [copied, setCopied] = useState(false);
   const filledSeats = room.seats.filter((s) => s.kind !== 'empty');
   const filled = filledSeats.length;
   let duelNote: string | null = null;
@@ -167,17 +194,6 @@ function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; on
   }
   const startError =
     filled < 2 ? 'Il faut au moins 2 joueurs.' : room.rules.teams && filled !== 4 ? 'Le mode équipes nécessite 4 joueurs.' : null;
-
-  const share = async () => {
-    const url = window.location.href;
-    if (navigator.share) {
-      await navigator.share({ title: 'Ludo', text: `Rejoins ma partie de Ludo ! Code : ${room.code}`, url }).catch(() => {});
-      return;
-    }
-    await navigator.clipboard?.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-4 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-32">
@@ -193,14 +209,13 @@ function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; on
         </div>
       </header>
 
-      <section className="card flex items-center gap-4 p-4">
-        <div className="min-w-0 flex-1">
+      <section className="card flex flex-col gap-3 p-4">
+        <div className="flex items-baseline justify-between gap-3">
           <span className="text-xs font-semibold uppercase tracking-widest text-white/50">Code du salon</span>
-          <div className="font-mono text-4xl font-bold tracking-[0.25em]">{room.code}</div>
+          <span className="text-xs text-white/50">Invite tes amis 👇</span>
         </div>
-        <button type="button" onClick={share} className="btn btn-light shrink-0 px-4">
-          {copied ? '✓ Copié' : '🔗 Inviter'}
-        </button>
+        <div className="text-center font-mono text-4xl font-bold tracking-[0.25em]">{room.code}</div>
+        <InviteButtons code={room.code} />
       </section>
 
       <section className="grid grid-cols-2 gap-3">

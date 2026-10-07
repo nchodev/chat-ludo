@@ -15,11 +15,14 @@ import {
   type BotLevel,
   type Color,
   type GameState,
+  type OpponentKind,
+  type ProgressSummary,
   type PublicSeat,
   type ReactionMessage,
   type RoomView,
   type Rules,
 } from '@ludo/engine';
+import { recordOnlineGame } from './api';
 
 type Seat = { kind: 'empty' } | { kind: 'human'; token: string } | { kind: 'bot'; level: BotLevel };
 
@@ -29,6 +32,8 @@ export interface Member {
   socketId: string | null;
   forfeitTimer?: NodeJS.Timeout;
   lastReactionAt?: number;
+  /** Account of a signed-in player, whose online games count for their profile. */
+  userId?: number;
 }
 
 export interface Room {
@@ -42,6 +47,12 @@ export interface Room {
   lastActivity: number;
   /** Key of the last game event bots had a chance to react to. */
   reactedEvent?: string;
+  /** Id of the finished game already credited to signed-in players. */
+  recordedGame?: string;
+  /** What each signed-in member earned in the last finished game, by member token. */
+  results: Map<string, ProgressSummary>;
+  /** Members who asked for a rematch after the last game. */
+  rematchVotes: Set<string>;
 }
 
 const BOT_NAMES: Record<BotLevel, string> = {
@@ -77,7 +88,7 @@ export class RoomManager {
     return [...this.rooms.values()];
   }
 
-  create(hostName: string, rules: Rules, socketId: string): { room: Room; token: string } {
+  create(hostName: string, rules: Rules, socketId: string, userId?: number): { room: Room; token: string } {
     let code: string;
     do {
       code = Array.from(randomBytes(5), (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
@@ -87,29 +98,51 @@ export class RoomManager {
     const room: Room = {
       code,
       hostToken: token,
-      members: new Map([[token, { token, name: hostName, socketId }]]),
+      members: new Map([[token, { token, name: hostName, socketId, userId }]]),
       seats: { red: { kind: 'human', token }, green: { kind: 'empty' }, yellow: { kind: 'empty' }, blue: { kind: 'empty' } },
       rules,
       game: null,
       timer: null,
       lastActivity: Date.now(),
+      results: new Map(),
+      rematchVotes: new Set(),
     };
     this.rooms.set(code, room);
     return { room, token };
   }
 
-  join(room: Room, name: string, socketId: string, token?: string): string {
+  /** Creates a public room for matched players (plus bots if needed) and starts the game at once. */
+  createMatch(players: { name: string; socketId: string; userId?: number }[], bots: BotLevel[], rules: Rules) {
+    const { room, token } = this.create(players[0].name, rules, players[0].socketId, players[0].userId);
+    room.seats.red = { kind: 'empty' };
+    const tokens = [token];
+    for (const p of players.slice(1)) {
+      const t = randomUUID();
+      room.members.set(t, { token: t, name: p.name, socketId: p.socketId, userId: p.userId });
+      tokens.push(t);
+    }
+    const seats: Seat[] = [
+      ...tokens.map((t): Seat => ({ kind: 'human', token: t })),
+      ...bots.map((level): Seat => ({ kind: 'bot', level })),
+    ];
+    seats.forEach((seat, i) => (room.seats[SEAT_PREFERENCE[i]] = seat));
+    this.launch(room);
+    return { room, tokens };
+  }
+
+  join(room: Room, name: string, socketId: string, token?: string, userId?: number): string {
     const existing = token ? room.members.get(token) : undefined;
     if (existing) {
       existing.socketId = socketId;
       existing.name = name || existing.name;
+      existing.userId = userId ?? existing.userId;
       clearTimeout(existing.forfeitTimer);
       this.touch(room);
       return existing.token;
     }
 
     const newToken = randomUUID();
-    room.members.set(newToken, { token: newToken, name, socketId });
+    room.members.set(newToken, { token: newToken, name, socketId, userId });
     if (!room.game) {
       const free = SEAT_PREFERENCE.find((c) => room.seats[c].kind === 'empty');
       if (free) room.seats[free] = { kind: 'human', token: newToken };
@@ -189,12 +222,37 @@ export class RoomManager {
   start(room: Room, token: string) {
     this.assertHost(room, token);
     if (room.game && room.game.phase !== 'over') throw new RoomError('La partie a déjà commencé.');
+    this.launch(room);
+  }
+
+  /**
+   * Votes for a rematch once a game is over; the new game starts when every connected
+   * player still seated has voted.
+   */
+  rematch(room: Room, token: string) {
+    if (!room.game || room.game.phase !== 'over') throw new RoomError("La partie n'est pas terminée.");
+    const humans = COLORS.flatMap((c) => {
+      const seat = room.seats[c];
+      return seat.kind === 'human' ? [seat.token] : [];
+    });
+    if (!humans.includes(token)) throw new RoomError('Seuls les joueurs peuvent demander une revanche.');
+    if (COLORS.filter((c) => room.seats[c].kind !== 'empty').length < 2) {
+      throw new RoomError('Ton adversaire est parti : retourne au salon pour inviter quelqu’un.');
+    }
+    room.rematchVotes.add(token);
+    const waiting = humans.filter((t) => room.members.get(t)?.socketId && !room.rematchVotes.has(t));
+    if (waiting.length === 0) this.launch(room);
+    else this.touch(room);
+  }
+
+  private launch(room: Room) {
     this.placeDuelDiagonally(room);
     const players = COLORS.filter((c) => room.seats[c].kind !== 'empty').map((color) => ({
       color,
       name: this.seatName(room, color),
     }));
     room.game = createGame(players, room.rules);
+    room.rematchVotes.clear();
     this.touch(room);
   }
 
@@ -214,6 +272,7 @@ export class RoomManager {
   backToLobby(room: Room, token: string) {
     this.assertHost(room, token);
     room.game = null;
+    room.rematchVotes.clear();
     this.touch(room);
   }
 
@@ -284,6 +343,11 @@ export class RoomManager {
         return s.kind === 'human' && s.token === token;
       }) ?? null,
       isHost: token === room.hostToken,
+      result: (token && room.game && room.recordedGame === room.game.id && room.results.get(token)) || null,
+      rematch: COLORS.filter((c) => {
+        const seat = room.seats[c];
+        return seat.kind === 'human' && room.rematchVotes.has(seat.token);
+      }),
     };
   }
 
@@ -343,8 +407,32 @@ export class RoomManager {
     if (message) setTimeout(() => this.onReaction(room, message), BOT_REACTION_DELAY_MS);
   }
 
+  /** Credits a finished game to every signed-in player who took part, once. */
+  private recordResults(room: Room) {
+    const game = room.game;
+    if (!game || game.phase !== 'over' || room.recordedGame === game.id) return;
+    room.recordedGame = game.id;
+    room.results.clear();
+    const opponentKind = (color: Color): OpponentKind => {
+      const seat = room.seats[color];
+      return seat.kind === 'bot' ? { kind: 'bot', level: seat.level } : { kind: 'human', online: true };
+    };
+    for (const color of COLORS) {
+      const seat = room.seats[color];
+      const member = seat.kind === 'human' ? room.members.get(seat.token) : undefined;
+      if (!member?.userId) continue;
+      try {
+        const summary = recordOnlineGame(member.userId, game, color, opponentKind);
+        if (summary) room.results.set(member.token, summary);
+      } catch (err) {
+        console.error('Impossible de créditer la partie', err);
+      }
+    }
+  }
+
   private touch(room: Room) {
     room.lastActivity = Date.now();
+    this.recordResults(room);
     this.schedule(room);
     this.onChange(room);
     this.botsReact(room);

@@ -1,14 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import {
-  TEAMMATE,
-  computeReward,
-  controlledColor,
-  type Color,
-  type GameState,
-  type OpponentKind,
-} from '@ludo/engine';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { TEAMMATE, controlledColor, type Color, type GameState, type ProgressSummary } from '@ludo/engine';
 import { Board } from './Board';
 import { Confetti } from './Confetti';
 import { Dice, DICE_ANIMATION_MS } from './Dice';
@@ -22,7 +15,7 @@ import { useAppearance } from '@/lib/appearance';
 import { COLOR_LABEL, describeEvent } from '@/lib/labels';
 import { sfx } from '@/lib/sound';
 import type { useReactionBubbles } from '@/lib/reactions';
-import { claimReward } from '@/lib/wallet';
+import { useGameProgress } from '@/lib/useGameProgress';
 import { ReactionButton } from './ReactionPicker';
 import { RewardSummary } from './RewardSummary';
 
@@ -46,6 +39,8 @@ interface GameViewProps {
   /** Colors played from this device: their victories earn coins here. */
   rewardColors: Color[];
   online: boolean;
+  /** For signed-in online players: what the server credited for the finished game. */
+  serverSummary?: ProgressSummary | null;
   reactions: ReactionBubbles & {
     /** Sends a reaction; absent when this screen has no player who may react (spectators). */
     onReact?: (reaction: string) => void;
@@ -66,6 +61,7 @@ export function GameView({
   notice,
   rewardColors,
   online,
+  serverSummary,
   reactions,
 }: GameViewProps) {
   const [helpOpen, setHelpOpen] = useState(false);
@@ -99,20 +95,7 @@ export function GameView({
     if (isOver) sfx.win();
   }, [isOver]);
 
-  const rewardColor = isOver ? rewardColors.find((c) => state.winners.includes(c)) : undefined;
-  const reward = useMemo(() => {
-    if (!rewardColor) return null;
-    const opponentKind = (color: Color): OpponentKind => {
-      const seat = seats.find((s) => s.color === color);
-      return seat?.isBot ? { kind: 'bot', level: seat.botLevel ?? 'medium' } : { kind: 'human', online };
-    };
-    return computeReward(state, rewardColor, opponentKind);
-  }, [state, rewardColor, seats, online]);
-  const lostHere = isOver && rewardColors.length > 0 && !rewardColor;
-
-  useEffect(() => {
-    if (reward && !animating) claimReward(state.id, reward.total);
-  }, [reward, animating, state.id]);
+  const progress = useGameProgress({ state, seats, rewardColors, online, serverSummary, animating });
 
   const panel = (color: Color, align: 'left' | 'right') => {
     const forfeited = state.forfeited.includes(color);
@@ -225,12 +208,16 @@ export function GameView({
 
       {isOver && !animating && (
         <>
-          <Confetti />
+          {(!progress.participant || progress.won) && <Confetti />}
           <div className="fixed inset-0 z-20 grid place-items-center overflow-y-auto bg-black/60 p-6 backdrop-blur-sm">
             <div className="pop-in w-full max-w-sm rounded-[28px] border border-white/10 bg-[#1a1b3a] p-6 text-center shadow-2xl">
-              <div className="float text-6xl">🏆</div>
+              <div className="float text-6xl">{progress.participant && !progress.won ? '😢' : '🏆'}</div>
               <h2 className="mt-3 text-3xl font-bold">
-                {state.winners.length > 1 ? 'Victoire d’équipe !' : 'Victoire !'}
+                {progress.participant && !progress.won
+                  ? 'Perdu…'
+                  : state.winners.length > 1
+                    ? 'Victoire d’équipe !'
+                    : 'Victoire !'}
               </h2>
               {state.lastEvent?.type === 'win' && state.lastEvent.reason === 'forfeit' && (
                 <p className="mt-1 text-sm text-white/60">Par abandon : dernier en lice.</p>
@@ -243,12 +230,7 @@ export function GameView({
                   </div>
                 ))}
               </div>
-              {reward && <RewardSummary state={state} reward={reward} />}
-              {lostHere && (
-                <p className="mt-4 rounded-2xl bg-white/5 px-3 py-2 text-sm text-white/60">
-                  Pas de pièces cette fois : gagne une partie pour en remporter !
-                </p>
-              )}
+              {progress.summary && <RewardSummary state={state} summary={progress.summary} />}
               <div className="mt-6 flex flex-col gap-2">{overlayActions}</div>
             </div>
           </div>
