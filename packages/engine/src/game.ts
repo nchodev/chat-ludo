@@ -91,9 +91,13 @@ export interface PlayerStats {
   captured: number;
 }
 
+/** Every action of the game in order, so a finished game can be replayed and checked. */
+export type GameAction = { roll: number } | { move: number } | { forfeit: Color };
+
 export interface GameState {
   /** Unique per game, so a victory is rewarded only once. */
   id: string;
+  history: GameAction[];
   rules: Rules;
   players: PlayerInfo[];
   /** Pawns of players still in the game; a player who forfeits has their pawns removed. */
@@ -145,6 +149,7 @@ export function createGame(players: PlayerInfo[], rules: Partial<Rules> = {}): G
 
   return {
     id: newGameId(),
+    history: [],
     rules: fullRules,
     players: ordered,
     pawns,
@@ -330,6 +335,7 @@ export function rollDice(state: GameState, value: number): GameState {
   if (!Number.isInteger(value) || value < 1 || value > 6) throw new GameError('Valeur de dé invalide.');
 
   const next = structuredClone(state);
+  next.history.push({ roll: value });
   const playerColor = next.players[next.current].color;
   next.dice = value;
   next.rollId += 1;
@@ -367,6 +373,7 @@ export function forfeit(state: GameState, color: Color): GameState {
   }
 
   const next = structuredClone(state);
+  next.history.push({ forfeit: color });
   next.forfeited.push(color);
   delete next.pawns[color];
   next.lastEvent = { type: 'forfeit', color };
@@ -395,6 +402,7 @@ export function applyMove(state: GameState, pawn: number): GameState {
   if (!move) throw new GameError('Ce pion ne peut pas bouger.');
 
   const next = structuredClone(state);
+  next.history.push({ move: pawn });
   next.pawns[move.color]![pawn] = move.to;
   const mover = next.players[next.current].color;
   for (const cap of move.captures) {
@@ -433,4 +441,18 @@ export function applyMove(state: GameState, pawn: number): GameState {
     return next;
   }
   return passTurn(next);
+}
+
+/** Replays a game from its actions; throws GameError if any action breaks the rules. */
+export function replayGame(players: PlayerInfo[], rules: Partial<Rules>, history: unknown[]): GameState {
+  let state = createGame(players, rules);
+  for (const action of history) {
+    if (state.phase === 'over') throw new GameError('Coup joué après la fin de la partie.');
+    const a = action as Record<string, unknown> | null;
+    if (a && typeof a.roll === 'number') state = rollDice(state, a.roll);
+    else if (a && typeof a.move === 'number') state = applyMove(state, a.move);
+    else if (a && typeof a.forfeit === 'string') state = forfeit(state, a.forfeit as Color);
+    else throw new GameError('Coup invalide.');
+  }
+  return state;
 }

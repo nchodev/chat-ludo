@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -25,6 +26,7 @@ db.exec(`
     user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     created_at INTEGER NOT NULL
   );
+  CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);
 `);
 
 export interface User {
@@ -90,17 +92,28 @@ export function updateProfile<T>(userId: number, change: (profile: Profile) => {
   }
 }
 
+const SESSION_TTL_MS = 60 * 24 * 60 * 60_000;
+
+/** Only a hash of each session token is stored, so a leaked database doesn't hand out live sessions. */
+const tokenHash = (token: string) => createHash('sha256').update(token).digest('base64url');
+
 export function createSession(token: string, userId: number) {
-  db.prepare('INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)').run(token, userId, Date.now());
+  db.prepare('INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)').run(tokenHash(token), userId, Date.now());
 }
 
 export function sessionUserId(token: string): number | null {
-  const row = db.prepare('SELECT user_id FROM sessions WHERE token = ?').get(token) as { user_id: number } | undefined;
+  const row = db
+    .prepare('SELECT user_id FROM sessions WHERE token = ? AND created_at > ?')
+    .get(tokenHash(token), Date.now() - SESSION_TTL_MS) as { user_id: number } | undefined;
   return row?.user_id ?? null;
 }
 
+export function deleteExpiredSessions() {
+  db.prepare('DELETE FROM sessions WHERE created_at <= ?').run(Date.now() - SESSION_TTL_MS);
+}
+
 export function deleteSession(token: string) {
-  db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+  db.prepare('DELETE FROM sessions WHERE token = ?').run(tokenHash(token));
 }
 
 export interface LeaderboardRow {

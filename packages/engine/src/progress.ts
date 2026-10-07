@@ -107,8 +107,10 @@ export function newProfile(): Profile {
 }
 
 const nonNegative = (v: unknown, fallback = 0) =>
-  typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : fallback;
-const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+  typeof v === 'number' && Number.isFinite(v) ? Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor(v))) : fallback;
+const strings = (v: unknown, maxLength = 64): string[] =>
+  Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === 'string' && x.length <= maxLength))] : [];
+const shortString = (v: unknown, maxLength = 10): string | null => (typeof v === 'string' && v.length <= maxLength ? v : null);
 
 /** Builds a valid profile from stored data, tolerating missing or corrupted fields. */
 export function normalizeProfile(raw: unknown): Profile {
@@ -119,11 +121,13 @@ export function normalizeProfile(raw: unknown): Profile {
   for (const key of Object.keys(stats) as (keyof LifetimeStats)[]) stats[key] = nonNegative(r.stats?.[key]);
   const appearance = { ...base.appearance };
   for (const key of Object.keys(appearance) as (keyof AppearanceChoice)[]) {
-    if (typeof r.appearance?.[key] === 'string') appearance[key] = r.appearance[key];
+    const id = r.appearance?.[key];
+    if (typeof id === 'string' && isShopItem(`${key}:${id}`)) appearance[key] = id;
   }
+  const isChallenge = (id: string) => DAILY_CHALLENGES.some((c) => c.id === id);
   const progress: Record<string, number> = {};
   if (r.daily?.progress && typeof r.daily.progress === 'object') {
-    for (const [k, v] of Object.entries(r.daily.progress)) progress[k] = nonNegative(v);
+    for (const [k, v] of Object.entries(r.daily.progress)) if (isChallenge(k)) progress[k] = nonNegative(v);
   }
   return {
     coins: nonNegative(r.coins),
@@ -131,15 +135,67 @@ export function normalizeProfile(raw: unknown): Profile {
     owned: strings(r.owned).filter(isShopItem),
     appearance,
     stats,
-    achievements: strings(r.achievements),
-    daily: { day: typeof r.daily?.day === 'string' ? r.daily.day : '', progress, done: strings(r.daily?.done) },
+    achievements: strings(r.achievements).filter((id) => ACHIEVEMENTS.some((a) => a.id === id)),
+    daily: { day: shortString(r.daily?.day) ?? '', progress, done: strings(r.daily?.done).filter(isChallenge) },
     login: {
-      lastDay: typeof r.login?.lastDay === 'string' ? r.login.lastDay : null,
+      lastDay: shortString(r.login?.lastDay),
       streak: nonNegative(r.login?.streak),
     },
     rewarded: strings(r.rewarded).slice(-MAX_REWARDED),
     tutorialDone: r.tutorialDone === true,
   };
+}
+
+/** Most a guest can bring into a new account, in coins plus the price of owned styles. */
+export const GUEST_IMPORT_MAX_VALUE = 2000;
+/** Level 5: what a guest can reasonably reach before creating an account. */
+export const GUEST_IMPORT_MAX_LEVEL = 5;
+
+/**
+ * A guest profile lives on the device and can be edited at will, so only a bounded,
+ * self-consistent part of it is carried into a new account.
+ */
+export function importGuestProfile(raw: unknown): Profile {
+  const guest = normalizeProfile(raw);
+  let budget = GUEST_IMPORT_MAX_VALUE;
+  const owned: ShopItem[] = [];
+  for (const item of [...guest.owned].sort((a, b) => itemPrice(a) - itemPrice(b))) {
+    if (itemPrice(item) > budget) break;
+    owned.push(item);
+    budget -= itemPrice(item);
+  }
+
+  const xp = Math.min(guest.xp, xpForLevel(GUEST_IMPORT_MAX_LEVEL));
+  const s = guest.stats;
+  const games = Math.min(s.games, Math.floor(xp / XP.perGame));
+  const wins = Math.min(s.wins, games);
+  const stats: LifetimeStats = {
+    games,
+    wins,
+    captures: Math.min(s.captures, games * 10),
+    pawnsHome: Math.min(s.pawnsHome, games * 4),
+    winStreak: Math.min(s.winStreak, wins),
+    bestWinStreak: Math.min(Math.max(s.bestWinStreak, s.winStreak), wins),
+    hardWins: Math.min(s.hardWins, wins),
+    onlineWins: Math.min(s.onlineWins, wins),
+    flawlessWins: Math.min(s.flawlessWins, wins),
+  };
+
+  const profile: Profile = {
+    ...guest,
+    coins: Math.min(guest.coins, budget),
+    xp,
+    owned,
+    stats,
+    login: { lastDay: guest.login.lastDay, streak: 0 },
+  };
+  for (const key of Object.keys(profile.appearance) as ShopCategory[]) {
+    const item = `${key}:${profile.appearance[key]}` as ShopItem;
+    if (!ownsItem(profile, item)) profile.appearance = { ...profile.appearance, [key]: DEFAULT_APPEARANCE[key] };
+  }
+  // Badges earned by the imported stats are granted without their coins, so importing never pays out later.
+  profile.achievements = ACHIEVEMENTS.filter((a) => a.unlocked(profile)).map((a) => a.id);
+  return profile;
 }
 
 export class ProgressError extends Error {}
@@ -232,6 +288,9 @@ export interface GameResult {
   flawless: boolean;
 }
 
+/** A game abandoned before this many dice rolls is not counted, so friends can't trade quick forfeits. */
+export const MIN_ROLLS_FOR_FORFEIT_WIN = 20;
+
 /** What a finished game means for the player of `color`. */
 export function gameResult(
   state: GameState,
@@ -240,6 +299,9 @@ export function gameResult(
   online: boolean,
 ): GameResult | null {
   if (state.phase !== 'over' || !state.players.some((p) => p.color === color)) return null;
+  if (state.lastEvent?.type === 'win' && state.lastEvent.reason === 'forfeit' && state.rollId < MIN_ROLLS_FOR_FORFEIT_WIN) {
+    return null;
+  }
   const won = state.winners.includes(color);
   const reward = won ? computeReward(state, color, opponentKind) : null;
   const losers = state.players.filter((p) => !state.winners.includes(p.color));

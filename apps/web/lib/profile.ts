@@ -219,12 +219,18 @@ export async function recordFinishedGame(input: {
     try {
       const res = await api<AccountResponse & { summary: ProgressSummary | null }>('/games/local', {
         token,
-        body: { state: input.state, color: input.color, opponents: input.opponents },
+        body: {
+          players: input.state.players,
+          rules: input.state.rules,
+          history: input.state.history,
+          color: input.color,
+          opponents: input.opponents,
+        },
       });
       applyAccount(res);
       return res.summary;
     } catch (err) {
-      if (err instanceof ApiError && err.status === 429) return null;
+      if (err instanceof ApiError && (err.status === 429 || err.status === 409)) return null;
       throw err;
     }
   }

@@ -15,7 +15,10 @@ RUN npm run build -w @ludo/web
 
 FROM node:23-slim
 WORKDIR /app
-ENV NODE_ENV=production
+ARG NEXT_PUBLIC_SERVER_URL
+ENV NODE_ENV=production \
+    NEXT_PUBLIC_SERVER_URL=$NEXT_PUBLIC_SERVER_URL
 COPY --from=build /app /app
+USER node
 EXPOSE 3000
 CMD ["npm", "run", "start", "-w", "@ludo/web"]

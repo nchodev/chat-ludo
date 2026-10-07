@@ -12,6 +12,8 @@ COPY apps/server apps/server
 ENV NODE_ENV=production \
     PORT=4000 \
     DATABASE_PATH=/data/ludo.db
+RUN mkdir /data && chown node:node /data
+USER node
 VOLUME /data
 EXPOSE 4000
 CMD ["npm", "run", "start", "-w", "@ludo/server"]

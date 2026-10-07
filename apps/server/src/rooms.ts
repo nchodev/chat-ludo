@@ -69,6 +69,9 @@ const DISCONNECTED_TAKEOVER_MS = 15_000;
 const DISCONNECT_FORFEIT_MS = 60_000;
 const IDLE_TAKEOVER_MS = 45_000;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+/** 4 players and a few spectators. */
+const MAX_MEMBERS = 12;
+const MAX_ROOMS = 5000;
 
 export class RoomError extends Error {}
 
@@ -89,6 +92,7 @@ export class RoomManager {
   }
 
   create(hostName: string, rules: Rules, socketId: string, userId?: number): { room: Room; token: string } {
+    if (this.rooms.size >= MAX_ROOMS) throw new RoomError('Le serveur est complet, réessaie dans quelques minutes.');
     let code: string;
     do {
       code = Array.from(randomBytes(5), (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
@@ -141,6 +145,7 @@ export class RoomManager {
       return existing.token;
     }
 
+    if (room.members.size >= MAX_MEMBERS) throw new RoomError('Ce salon est plein.');
     const newToken = randomUUID();
     room.members.set(newToken, { token: newToken, name, socketId, userId });
     if (!room.game) {
@@ -337,7 +342,8 @@ export class RoomManager {
       seats,
       spectators: [...room.members.values()].filter((m) => !seatedTokens.has(m.token)).map((m) => m.name),
       rules: room.rules,
-      game: room.game,
+      // The action log is only needed on the server; leave it out of every broadcast.
+      game: room.game && { ...room.game, history: [] },
       you: COLORS.find((c) => {
         const s = room.seats[c];
         return s.kind === 'human' && s.token === token;

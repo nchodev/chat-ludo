@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   FINISHED,
+  GUEST_IMPORT_MAX_LEVEL,
+  GUEST_IMPORT_MAX_VALUE,
   HOME_COLUMN_START,
+  MIN_ROLLS_FOR_FORFEIT_WIN,
+  SHOP_PRICES,
+  importGuestProfile,
   applyMove,
   buyItem,
   claimLoginBonus,
@@ -129,7 +134,34 @@ describe('progression', () => {
   });
 
   it('victoire par abandon sans pions rentrés', () => {
-    const r = gameResult(forfeit(createGame(duel), 'yellow'), 'red', () => ({ kind: 'human', online: true }), true)!;
+    const played = { ...createGame(duel), rollId: MIN_ROLLS_FOR_FORFEIT_WIN };
+    const r = gameResult(forfeit(played, 'yellow'), 'red', () => ({ kind: 'human', online: true }), true)!;
     expect(r).toMatchObject({ won: true, pawnsHome: 0, flawless: false });
+  });
+
+  it("un abandon dès le début ne rapporte rien", () => {
+    expect(gameResult(forfeit(createGame(duel), 'yellow'), 'red', hardBot, true)).toBeNull();
+  });
+
+  it('import invité borné et cohérent', () => {
+    const p = importGuestProfile({
+      coins: 999999,
+      xp: 1e12,
+      owned: Object.keys(SHOP_PRICES),
+      appearance: { pawn: 'crown', board: 'x'.repeat(500) },
+      stats: { games: 1e6, wins: 1e6, captures: 1e6, hardWins: 50 },
+      achievements: ['first_win', 'games_100', 'level_10', 'inconnu'],
+    });
+    const value = p.coins + p.owned.reduce((s, i) => s + SHOP_PRICES[i], 0);
+    expect(value).toBeLessThanOrEqual(GUEST_IMPORT_MAX_VALUE);
+    expect(levelInfo(p.xp).level).toBe(GUEST_IMPORT_MAX_LEVEL);
+    expect(p.stats.games).toBe(p.xp / 20);
+    expect(p.stats.wins).toBeLessThanOrEqual(p.stats.games);
+    expect(p.achievements).toEqual(expect.arrayContaining(['first_win', 'wins_10', 'wins_50', 'hard_win']));
+    expect(p.achievements).not.toContain('games_100');
+    const next = recordGame(p, gameResult({ ...redWins(), id: 'after-import' }, 'red', hardBot, false)!, DAY)!;
+    expect(next.summary.achievements.map((a) => a.id)).not.toContain('wins_50');
+    expect(p.appearance.board).toBe('classic');
+    if (!p.owned.includes('pawn:crown')) expect(p.appearance.pawn).toBe('board');
   });
 });

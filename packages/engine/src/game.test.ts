@@ -7,6 +7,8 @@ import {
   chooseMove,
   createGame,
   forfeit,
+  GameError,
+  replayGame,
   rollDice,
   rollDie,
   type BotLevel,
@@ -255,5 +257,23 @@ describe('parties complètes entre ordinateurs', () => {
       if (g.winners[0] === 'red') hardWins++;
     }
     expect(hardWins).toBeGreaterThan(36);
+  });
+});
+
+describe('rejouer une partie', () => {
+  it("retrouve exactement l'état final à partir de l'historique", () => {
+    const g = simulate({}, fourPlayers, ['easy', 'medium', 'hard'], 7);
+    const replayed = replayGame(g.players, g.rules, g.history);
+    expect({ ...replayed, id: g.id }).toEqual(g);
+  });
+
+  it('refuse un coup illégal ou un historique trafiqué', () => {
+    const g = simulate({}, twoPlayers as typeof fourPlayers, ['easy', 'easy'], 3);
+    const firstMove = g.history.findIndex((a) => 'move' in a);
+    const tampered = g.history.map((a, i) => (i === firstMove ? { move: 9 } : a));
+    expect(() => replayGame(g.players, g.rules, tampered)).toThrow(GameError);
+    expect(() => replayGame(g.players, g.rules, [{ roll: 7 }])).toThrow(GameError);
+    expect(() => replayGame(g.players, g.rules, [{ hack: true }])).toThrow(GameError);
+    expect(() => replayGame(g.players, g.rules, [...g.history, { roll: 6 }])).toThrow(GameError);
   });
 });

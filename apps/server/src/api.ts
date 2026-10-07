@@ -1,4 +1,4 @@
-import { randomBytes, scrypt as scryptCb, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { promisify } from 'node:util';
 import {
@@ -9,31 +9,36 @@ import {
   claimLoginBonus,
   completeTutorial,
   gameResult,
+  importGuestProfile,
+  isColor,
   isShopItem,
   levelInfo,
   newProfile,
-  normalizeProfile,
   recordGame,
+  replayGame,
+  sanitizeRules,
   setAppearance,
   utcDay,
   type Color,
   type GameState,
   type OpponentKind,
+  type PlayerInfo,
   type Profile,
 } from '@ludo/engine';
 import * as db from './db';
+import { RateLimiter, cleanText, clientIp } from './security';
 
 const scrypt = promisify(scryptCb) as (password: string, salt: Buffer, keylen: number) => Promise<Buffer>;
 
 const MAX_BODY_BYTES = 256 * 1024;
 const USERNAME_RE = /^[\p{L}\p{N}_-]{3,16}$/u;
 const MIN_PASSWORD = 6;
-/** Coins a guest can bring along when creating an account. */
-const MAX_IMPORTED_COINS = 2000;
-/** A real game against the computer lasts longer than this. */
-const MIN_LOCAL_GAME_INTERVAL_MS = 30_000;
-const LOGIN_WINDOW_MS = 5 * 60_000;
-const LOGIN_MAX_ATTEMPTS = 10;
+const MAX_PASSWORD = 128;
+/** Games end at least this far apart for one player; quicker results are not counted. */
+const MIN_GAME_INTERVAL_MS = 30_000;
+/** Local games can't be fully verified (the device rolls the dice), so their rewards are capped. */
+const MAX_LOCAL_GAMES_PER_DAY = 30;
+const MAX_HISTORY = 5000;
 
 export class HttpError extends Error {
   constructor(
@@ -58,19 +63,37 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
   return timingSafeEqual(actual, expected);
 }
 
-const loginAttempts = new Map<string, number[]>();
+/** Checked against when the username doesn't exist, so response time doesn't reveal which accounts exist. */
+const dummyHash = hashPassword(randomBytes(16).toString('hex'));
 
-function checkLoginRate(ip: string) {
-  const now = Date.now();
-  const recent = (loginAttempts.get(ip) ?? []).filter((t) => now - t < LOGIN_WINDOW_MS);
-  if (recent.length >= LOGIN_MAX_ATTEMPTS) {
-    throw new HttpError(429, 'Trop de tentatives. Réessaie dans quelques minutes.');
-  }
-  recent.push(now);
-  loginAttempts.set(ip, recent);
+const loginLimiter = new RateLimiter(10, 5 * 60_000);
+const registerLimiter = new RateLimiter(10, 60 * 60_000);
+
+function limit(limiter: RateLimiter, key: string) {
+  if (!limiter.hit(key)) throw new HttpError(429, 'Trop de tentatives. Réessaie dans quelques minutes.');
 }
 
-const lastLocalGame = new Map<number, number>();
+const lastRewardedGame = new Map<number, number>();
+const localGamesToday = new Map<string, number>();
+
+/**
+ * Whether a finished game may be credited to this player now: games can't end closer
+ * than MIN_GAME_INTERVAL_MS apart, and local games are capped per day.
+ */
+function claimRewardSlot(userId: number, local: boolean): string | null {
+  const now = Date.now();
+  if (now - (lastRewardedGame.get(userId) ?? 0) < MIN_GAME_INTERVAL_MS) return 'Partie trop courte pour être comptée.';
+  const key = `${userId}:${utcDay()}`;
+  if (local && (localGamesToday.get(key) ?? 0) >= MAX_LOCAL_GAMES_PER_DAY) {
+    return 'Limite de parties récompensées atteinte pour aujourd’hui.';
+  }
+  lastRewardedGame.set(userId, now);
+  if (local) {
+    if (localGamesToday.size > 10_000) localGamesToday.clear();
+    localGamesToday.set(key, (localGamesToday.get(key) ?? 0) + 1);
+  }
+  return null;
+}
 
 export interface PublicProfile {
   username: string;
@@ -123,9 +146,18 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
 }
 
 function credentials(body: Record<string, unknown>) {
-  const username = typeof body.username === 'string' ? body.username.trim() : '';
+  const username = typeof body.username === 'string' ? body.username.normalize('NFKC').trim() : '';
   const password = typeof body.password === 'string' ? body.password : '';
+  if (password.length > MAX_PASSWORD) throw new HttpError(400, `Mot de passe : au plus ${MAX_PASSWORD} caractères.`);
   return { username, password };
+}
+
+function parsePlayers(raw: unknown): PlayerInfo[] {
+  if (!Array.isArray(raw) || raw.length < 2 || raw.length > 4) throw new HttpError(400, 'Résultat de partie invalide.');
+  return raw.map((p) => {
+    if (!p || !isColor(p.color)) throw new HttpError(400, 'Résultat de partie invalide.');
+    return { color: p.color, name: cleanText(p.name, 20) || 'Joueur' };
+  });
 }
 
 function parseOpponents(raw: unknown): Partial<Record<Color, OpponentKind>> {
@@ -153,36 +185,29 @@ function mutate<T extends object>(user: db.User, change: (p: Profile) => { profi
 
 type Handler = (req: IncomingMessage, body: Record<string, unknown>) => Promise<unknown> | unknown;
 
-/** Behind a reverse proxy (TRUST_PROXY=1), the client address comes from X-Forwarded-For. */
-function clientIp(req: IncomingMessage): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (process.env.TRUST_PROXY && typeof forwarded === 'string') return forwarded.split(',')[0].trim();
-  return req.socket.remoteAddress ?? '';
-}
+const ip = (req: IncomingMessage) => clientIp(req.headers, req.socket.remoteAddress);
 
 const routes: Record<string, Handler> = {
   'POST /api/register': async (req, body) => {
-    checkLoginRate(clientIp(req));
     const { username, password } = credentials(body);
     if (!USERNAME_RE.test(username)) {
       throw new HttpError(400, 'Pseudo : 3 à 16 caractères (lettres, chiffres, - ou _).');
     }
     if (password.length < MIN_PASSWORD) throw new HttpError(400, `Mot de passe : au moins ${MIN_PASSWORD} caractères.`);
+    limit(registerLimiter, ip(req));
     if (db.usernameTaken(username)) throw new HttpError(409, 'Ce pseudo est déjà pris.');
 
-    const guest = body.guestProfile ? normalizeProfile(body.guestProfile) : newProfile();
-    const profile = { ...guest, coins: Math.min(guest.coins, MAX_IMPORTED_COINS) };
+    const profile = body.guestProfile ? importGuestProfile(body.guestProfile) : newProfile();
     const user = db.createUser(username, await hashPassword(password), profile);
     return { token: newSession(user.id), ...publicProfile(user) };
   },
 
   'POST /api/login': async (req, body) => {
-    checkLoginRate(clientIp(req));
+    limit(loginLimiter, ip(req));
     const { username, password } = credentials(body);
     const user = db.findUserForLogin(username);
-    if (!user || !(await verifyPassword(password, user.passwordHash))) {
-      throw new HttpError(401, 'Pseudo ou mot de passe incorrect.');
-    }
+    const valid = await verifyPassword(password, user?.passwordHash ?? (await dummyHash));
+    if (!user || !valid) throw new HttpError(401, 'Pseudo ou mot de passe incorrect.');
     return { token: newSession(user.id), ...publicProfile(user) };
   },
 
@@ -218,27 +243,34 @@ const routes: Record<string, Handler> = {
       return { profile: done?.profile ?? p, result: { summary: done?.summary ?? null } };
     }),
 
-  /** Result of a game played on the device (against the computer or friends on the same screen). */
+  /**
+   * Result of a game played on the device (against the computer or friends on the same screen).
+   * The game is replayed from its actions, so its outcome and statistics follow the rules.
+   */
   'POST /api/games/local': (req, body) => {
     const user = requireUser(req);
-    const state = body.state as GameState | undefined;
     const color = body.color;
-    if (!state || typeof state !== 'object' || typeof state.id !== 'string' || !COLORS.includes(color as Color)) {
+    const history = body.history;
+    if (!isColor(color) || !Array.isArray(history) || history.length > MAX_HISTORY) {
       throw new HttpError(400, 'Résultat de partie invalide.');
     }
-    const now = Date.now();
-    if (now - (lastLocalGame.get(user.id) ?? 0) < MIN_LOCAL_GAME_INTERVAL_MS) {
-      throw new HttpError(429, 'Partie trop courte pour être comptée.');
-    }
-    const opponents = parseOpponents(body.opponents);
-    let result;
+    const players = parsePlayers(body.players);
+    const rules = sanitizeRules(body.rules);
+    let state: GameState;
     try {
-      result = gameResult(state, color as Color, (c) => opponents[c] ?? { kind: 'human', online: false }, false);
+      state = replayGame(players, rules, history);
     } catch {
       throw new HttpError(400, 'Résultat de partie invalide.');
     }
-    if (!result) throw new HttpError(400, "La partie n'est pas terminée.");
-    lastLocalGame.set(user.id, now);
+    if (state.phase !== 'over') throw new HttpError(400, "La partie n'est pas terminée.");
+    state.id = `local-${createHash('sha256').update(JSON.stringify([players, rules, history])).digest('base64url')}`;
+
+    const opponents = parseOpponents(body.opponents);
+    const result = gameResult(state, color, (c) => opponents[c] ?? { kind: 'human', online: false }, false);
+    if (!result) return { ...publicProfile(user), summary: null };
+    if (user.profile.rewarded.includes(result.gameId)) throw new HttpError(409, 'Partie déjà comptée.');
+    const refused = claimRewardSlot(user.id, true);
+    if (refused) throw new HttpError(429, refused);
     return mutate(user, (p) => {
       const recorded = recordGame(p, result, utcDay());
       return { profile: recorded?.profile ?? p, result: { summary: recorded?.summary ?? null } };
@@ -258,7 +290,7 @@ const routes: Record<string, Handler> = {
 /** Records a finished online game for a signed-in player; null if already counted. */
 export function recordOnlineGame(userId: number, state: GameState, color: Color, opponentKind: (c: Color) => OpponentKind) {
   const result = gameResult(state, color, opponentKind, true);
-  if (!result) return null;
+  if (!result || claimRewardSlot(userId, false)) return null;
   return db.updateProfile(userId, (p) => {
     const recorded = recordGame(p, result, utcDay());
     return { profile: recorded?.profile ?? p, result: recorded?.summary ?? null };
@@ -281,7 +313,11 @@ function setCors(req: IncomingMessage, res: ServerResponse) {
 }
 
 function send(res: ServerResponse, status: number, data: unknown) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
   res.end(JSON.stringify(data));
 }
 
