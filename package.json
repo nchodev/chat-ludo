@@ -1,0 +1,25 @@
+{
+  "name": "ludo",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,server -c blue,magenta \"npm run dev -w @ludo/web\" \"npm run dev -w @ludo/server\"",
+    "dev:web": "npm run dev -w @ludo/web",
+    "dev:server": "npm run dev -w @ludo/server",
+    "build": "npm run build -w @ludo/web",
+    "start": "concurrently -n web,server -c blue,magenta \"npm run start -w @ludo/web\" \"npm run start -w @ludo/server\"",
+    "test": "npm test -w @ludo/engine",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "shell-quote": "^1.12.0"
+  }
+}

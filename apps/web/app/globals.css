@@ -1,0 +1,236 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: var(--font-fredoka), ui-rounded, system-ui, sans-serif;
+  --color-ludo-red: #e53935;
+  --color-ludo-green: #43a047;
+  --color-ludo-yellow: #fbc02d;
+  --color-ludo-blue: #1e88e5;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(circle at 15% 0%, rgba(229, 57, 53, 0.25), transparent 40%),
+    radial-gradient(circle at 85% 0%, rgba(67, 160, 71, 0.22), transparent 40%),
+    radial-gradient(circle at 15% 100%, rgba(30, 136, 229, 0.25), transparent 45%),
+    radial-gradient(circle at 85% 100%, rgba(251, 192, 45, 0.2), transparent 45%),
+    #0f1029;
+  background-attachment: fixed;
+  color: #f8fafc;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@layer components {
+  .card {
+    @apply rounded-3xl border border-white/10 bg-white/[0.07] shadow-xl backdrop-blur-md;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 font-semibold transition select-none active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply bg-gradient-to-b from-emerald-400 to-emerald-600 text-white shadow-lg shadow-emerald-900/40;
+  }
+  .btn-light {
+    @apply bg-white text-slate-900 shadow-lg;
+  }
+  .btn-ghost {
+    @apply bg-white/10 text-white hover:bg-white/15;
+  }
+  .icon-btn {
+    @apply grid size-10 place-items-center rounded-full bg-white/10 text-lg transition hover:bg-white/15 active:scale-90;
+  }
+  .chip-toggle {
+    @apply rounded-xl px-2 py-2 text-sm font-semibold transition active:scale-95;
+  }
+}
+
+/* Pawns */
+.pawn {
+  transition: transform 100ms ease-out;
+}
+
+@keyframes pawn-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0.2;
+  }
+}
+.pawn-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pawn-pulse 1s ease-in-out infinite;
+}
+
+@keyframes pawn-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-0.12px);
+  }
+}
+.pawn-bob {
+  animation: pawn-bob 0.6s ease-in-out infinite;
+}
+
+@keyframes target-spin {
+  to {
+    stroke-dashoffset: -0.4;
+  }
+}
+.target-spin {
+  animation: target-spin 0.8s linear infinite;
+}
+
+@keyframes base-glow {
+  0%,
+  100% {
+    stroke-opacity: 1;
+  }
+  50% {
+    stroke-opacity: 0.2;
+  }
+}
+.base-glow {
+  animation: base-glow 1.2s ease-in-out infinite;
+}
+
+/* Dice */
+@keyframes dice-roll {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  20% {
+    transform: rotate(-25deg) scale(1.15) translateY(-6px);
+  }
+  45% {
+    transform: rotate(20deg) scale(0.92);
+  }
+  70% {
+    transform: rotate(-10deg) scale(1.06) translateY(-3px);
+  }
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+}
+.dice-rolling {
+  animation: dice-roll 0.5s ease-in-out;
+}
+
+@keyframes dice-invite {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+.dice-invite {
+  animation: dice-invite 1s ease-in-out infinite;
+}
+
+/* UI */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.pop-in {
+  animation: pop-in 0.25s ease-out;
+}
+
+@keyframes reaction-bubble {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.3);
+  }
+  8% {
+    opacity: 1;
+    transform: translateY(0) scale(1.12);
+  }
+  14% {
+    transform: scale(1);
+  }
+  85% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.95);
+  }
+}
+
+.reaction-bubble {
+  animation: reaction-bubble 3.2s ease-out forwards;
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+.sheet-up {
+  animation: sheet-up 0.28s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translate3d(0, -10vh, 0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--drift), 110vh, 0) rotate(var(--spin));
+    opacity: 0.9;
+  }
+}
+.confetti {
+  position: absolute;
+  top: 0;
+  animation: confetti-fall var(--duration) linear var(--delay) forwards;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+.float {
+  animation: float 3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  .reaction-bubble {
+    animation: none !important;
+  }
+}
