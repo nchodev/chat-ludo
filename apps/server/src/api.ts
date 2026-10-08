@@ -39,6 +39,7 @@ const MIN_GAME_INTERVAL_MS = 30_000;
 /** Local games can't be fully verified (the device rolls the dice), so their rewards are capped. */
 const MAX_LOCAL_GAMES_PER_DAY = 30;
 const MAX_HISTORY = 5000;
+const MAX_CHAT_MESSAGE = 500;
 
 export class HttpError extends Error {
   constructor(
@@ -68,6 +69,8 @@ const dummyHash = hashPassword(randomBytes(16).toString('hex'));
 
 const loginLimiter = new RateLimiter(10, 5 * 60_000);
 const registerLimiter = new RateLimiter(10, 60 * 60_000);
+const friendRequestLimiter = new RateLimiter(30, 60 * 60_000);
+const messageLimiter = new RateLimiter(120, 60 * 60_000);
 
 function limit(limiter: RateLimiter, key: string) {
   if (!limiter.hit(key)) throw new HttpError(429, 'Trop de tentatives. Réessaie dans quelques minutes.');
@@ -169,6 +172,60 @@ function parseOpponents(raw: unknown): Partial<Record<Color, OpponentKind>> {
     else if (o?.kind === 'human') result[color] = { kind: 'human', online: false };
   }
   return result;
+}
+
+function accountByUsername(raw: unknown): db.User {
+  const username = typeof raw === 'string' ? raw.normalize('NFKC').trim() : '';
+  const user = username ? db.findUserByUsername(username) : null;
+  if (!user) throw new HttpError(404, 'Utilisateur introuvable.');
+  return user;
+}
+
+function requireFriend(user: db.User, rawUsername: unknown): db.User {
+  const friend = accountByUsername(rawUsername);
+  if (!db.areFriends(user.id, friend.id)) throw new HttpError(403, 'Ajoute cette personne en ami avant de discuter.');
+  return friend;
+}
+
+function messageView(message: db.StoredMessage, viewerId: number) {
+  return {
+    id: message.id,
+    from: message.sender,
+    to: message.recipient,
+    mine: message.senderId === viewerId,
+    body: message.body,
+    createdAt: message.createdAt,
+  };
+}
+
+function socialState(user: db.User) {
+  const friends = db.listFriends(user.id).map((friend) => ({
+    username: friend.username,
+    xp: friend.xp,
+    wins: friend.wins,
+    level: levelInfo(friend.xp).level,
+    since: friend.since,
+  }));
+  const conversations = friends
+    .map((friend) => {
+      const other = db.findUserByUsername(friend.username);
+      const last = other ? db.lastThreadMessage(user.id, other.id) : null;
+      return {
+        friend,
+        lastMessage: last ? messageView(last, user.id) : null,
+      };
+    })
+    .sort((a, b) => {
+      const latest = (b.lastMessage?.createdAt ?? 0) - (a.lastMessage?.createdAt ?? 0);
+      return latest || a.friend.username.localeCompare(b.friend.username, 'fr', { sensitivity: 'base' });
+    });
+
+  return {
+    friends,
+    incoming: db.listIncomingFriendRequests(user.id),
+    outgoing: db.listOutgoingFriendRequests(user.id),
+    conversations,
+  };
 }
 
 /** Applies a profile change for the signed-in user and returns the updated public profile. */
@@ -284,6 +341,55 @@ const routes: Record<string, Handler> = {
       players: db.leaderboard().map((row, i) => ({ rank: i + 1, ...row, level: levelInfo(row.xp).level })),
       you: user ? { username: user.username, rank: db.rankOf(user.id), xp: user.profile.xp, level: levelInfo(user.profile.xp).level } : null,
     };
+  },
+
+  'GET /api/social': (req) => socialState(requireUser(req)),
+
+  'POST /api/friends/request': (req, body) => {
+    const user = requireUser(req);
+    limit(friendRequestLimiter, `${ip(req)}:${user.id}`);
+    const target = accountByUsername(body.username);
+    if (target.id === user.id) throw new HttpError(400, 'Tu ne peux pas t’ajouter toi-même.');
+    const status = db.createFriendRequest(user.id, target.id);
+    const labels: Record<typeof status, string> = {
+      requested: `Invitation envoyée à ${target.username}.`,
+      pending: `Invitation déjà envoyée à ${target.username}.`,
+      accepted: `${target.username} est maintenant dans tes amis.`,
+      already_friends: `${target.username} est déjà dans tes amis.`,
+    };
+    return { status, message: labels[status], ...socialState(user) };
+  },
+
+  'POST /api/friends/respond': (req, body) => {
+    const user = requireUser(req);
+    const requester = accountByUsername(body.username);
+    const hasRequest = db.listIncomingFriendRequests(user.id).some((request) => request.username.toLowerCase() === requester.username.toLowerCase());
+    if (!hasRequest) throw new HttpError(404, 'Invitation introuvable.');
+    if (body.action === 'accept') {
+      db.createFriendship(user.id, requester.id);
+      return { message: `${requester.username} est maintenant dans tes amis.`, ...socialState(user) };
+    }
+    if (body.action === 'decline') {
+      db.declineFriendRequest(user.id, requester.id);
+      return { message: `Invitation de ${requester.username} refusée.`, ...socialState(user) };
+    }
+    throw new HttpError(400, 'Action invalide.');
+  },
+
+  'POST /api/messages/thread': (req, body) => {
+    const user = requireUser(req);
+    const friend = requireFriend(user, body.username);
+    return { friend: { username: friend.username, level: levelInfo(friend.profile.xp).level }, messages: db.listThread(user.id, friend.id).map((m) => messageView(m, user.id)) };
+  },
+
+  'POST /api/messages/send': (req, body) => {
+    const user = requireUser(req);
+    limit(messageLimiter, `${ip(req)}:${user.id}`);
+    const friend = requireFriend(user, body.username);
+    const text = cleanText(body.message, MAX_CHAT_MESSAGE);
+    if (!text) throw new HttpError(400, 'Message vide.');
+    const message = db.storeMessage(user.id, friend.id, text);
+    return { message: messageView(message, user.id), ...socialState(user) };
   },
 };
 
