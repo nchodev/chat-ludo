@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@ludo/engine": "*",
-    "next": "^16.4.0",
+    "next": "16.4.3",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "socket.io-client": "^4.8.1"
