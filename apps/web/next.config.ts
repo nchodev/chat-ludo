@@ -36,6 +36,9 @@ const nextConfig: NextConfig = {
   // Lets phones on the local network load the dev server's scripts.
   allowedDevOrigins: ['192.168.*.*', '10.*.*.*'],
   poweredByHeader: false,
+  experimental: {
+    agentUpgrade: 'security',
+  },
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },
