@@ -50,42 +50,44 @@ export function ReactionButton({ onReact, hidden, onHiddenChange }: ReactionButt
             className="fixed inset-0 z-30 cursor-default"
             onClick={() => setOpen(false)}
           />
-          <div className="pop-in absolute right-0 bottom-full left-0 z-40 mb-2 rounded-3xl border border-white/10 bg-[#23244a]/95 p-3 shadow-2xl backdrop-blur">
-            <div className="grid grid-cols-6 gap-1">
+          <div className="pop-in absolute right-0 bottom-full left-0 z-40 mb-2 overflow-hidden rounded-2xl border border-white/10 bg-[#23244a]/95 py-1.5 shadow-2xl backdrop-blur">
+            <div className="flex items-center gap-0.5 overflow-x-auto px-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {EMOJIS.map((r) => (
                 <button
                   key={r.id}
                   type="button"
                   onClick={() => send(r.id)}
                   disabled={cooling}
-                  className="grid h-12 place-items-center rounded-xl text-[26px] transition hover:bg-white/10 active:scale-90 disabled:opacity-40"
+                  className="grid size-10 shrink-0 place-items-center rounded-xl text-[24px] transition hover:bg-white/10 active:scale-90 disabled:opacity-40"
                 >
                   {r.emoji}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => onHiddenChange(!hidden)}
+                aria-pressed={hidden}
+                title={hidden ? 'Afficher les réactions des autres' : 'Masquer les réactions des autres'}
+                className={`ml-1 shrink-0 rounded-full px-2.5 py-1.5 text-[11px] font-semibold whitespace-nowrap transition ${
+                  hidden ? 'bg-emerald-400/25 text-emerald-200' : 'bg-white/10 text-white/60'
+                }`}
+              >
+                {hidden ? '🔕 Masquées' : '🔔 Visibles'}
+              </button>
             </div>
-            <div className="mt-2 grid grid-cols-2 gap-1.5">
+            <div className="mt-1 flex gap-1.5 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {PHRASES.map((r) => (
                 <button
                   key={r.id}
                   type="button"
                   onClick={() => send(r.id)}
                   disabled={cooling}
-                  className="truncate rounded-full bg-white/10 px-3 py-2 text-left text-[13px] font-medium transition hover:bg-white/15 active:scale-95 disabled:opacity-40"
+                  className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-[13px] font-medium whitespace-nowrap transition hover:bg-white/15 active:scale-95 disabled:opacity-40"
                 >
                   {r.emoji} {r.text}
                 </button>
               ))}
             </div>
-            <label className="mt-3 flex items-center justify-between gap-3 px-1 text-xs text-white/60">
-              Masquer les réactions des autres
-              <input
-                type="checkbox"
-                checked={hidden}
-                onChange={(e) => onHiddenChange(e.target.checked)}
-                className="size-4 accent-emerald-400"
-              />
-            </label>
           </div>
         </>
       )}

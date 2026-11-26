@@ -1,106 +1,116 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Avatar } from '@/components/chat/Avatar';
+import { ChatList, chatRows } from '@/components/chat/ChatList';
+import { GroupInfoSheet, NewGroupSheet } from '@/components/chat/GroupSheets';
+import { ChatThread, type ThreadItem } from '@/components/chat/ChatThread';
 import { CoinBadge } from '@/components/Coins';
-import { DailyCard } from '@/components/DailyCard';
-import { HowToPlay } from '@/components/HowToPlay';
-import { ProfileChip } from '@/components/ProfileChip';
-import { Sheet } from '@/components/Sheet';
-import { COLOR_DARK, COLOR_HEX } from '@/lib/board';
-import { useProfile } from '@/lib/profile';
+import { DailyBonusPrompt } from '@/components/DailyCard';
+import { FriendsTab } from '@/components/friends/FriendsTab';
+import { GamesCatalog } from '@/components/GameCard';
+import { Icon } from '@/components/Icons';
+import { LuChatLogo, LuChatWordmark } from '@/components/LuChatLogo';
+import { ProfileView } from '@/components/ProfileView';
+import { TabIcon } from '@/components/TabIcons';
+import { NotificationsPrompt } from '@/components/chat/NotificationsPrompt';
+import { onOpenChatRequest, setViewingChat, useChat } from '@/lib/chat';
+import { api } from '@/lib/api';
+import { getSessionToken, useProfile } from '@/lib/profile';
+import { uploadVoice, type Recording } from '@/lib/voice';
+import { rememberMedia, uploadImage } from '@/lib/media';
+import type { OutgoingPhoto } from '@/components/chat/PhotoComposer';
+import { parseChatImage, type ChatReplyPreview, type GroupView } from '@ludo/engine';
 import {
   getSocialState,
   getThread,
-  respondToFriendRequest,
-  sendFriendRequest,
-  sendMessage as sendChatMessage,
   type ChatMessage,
   type SocialState,
 } from '@/lib/social';
 
-const LOGO_COLORS = ['red', 'green', 'blue', 'yellow'] as const;
-type Tab = 'chats' | 'friends' | 'games';
+type Tab = 'chats' | 'friends' | 'games' | 'profile';
+const TABS: Tab[] = ['chats', 'friends', 'games', 'profile'];
 
-function Logo() {
+function EmptyState({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
-    <div className="float relative mx-auto size-20">
-      <div className="grid size-full rotate-45 grid-cols-2 gap-1 overflow-hidden rounded-[22px] p-1 shadow-2xl shadow-black/50 ring-4 ring-white/20">
-        {LOGO_COLORS.map((c) => (
-          <span
-            key={c}
-            className="grid place-items-center rounded-[11px]"
-            style={{ background: `linear-gradient(145deg, ${COLOR_HEX[c]}, ${COLOR_DARK[c]})` }}
-          >
-            <span className="size-4 -rotate-45 rounded-full border-[3px] border-white/90 bg-white/30 shadow" />
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function EmptyState({ icon, title, children }: { icon: string; title: string; children: ReactNode }) {
-  return (
-    <section className="card flex flex-col items-center gap-2 p-6 text-center">
-      <span className="text-5xl">{icon}</span>
-      <h2 className="text-xl font-bold">{title}</h2>
-      <div className="text-sm leading-relaxed text-white/65">{children}</div>
+    <section className="flex flex-col items-center gap-2 px-4 pt-12 text-center">
+      <span className="mb-2 grid size-20 place-items-center rounded-full bg-[#00a884]/12 text-[#00a884]">{icon}</span>
+      <h2 className="text-[19px] font-semibold text-[#e9edef]">{title}</h2>
+      <div className="max-w-xs text-[14px] leading-relaxed text-[#8696a0]">{children}</div>
     </section>
   );
 }
 
-function MenuLink({ href, icon, gradient, title, subtitle }: { href: string; icon: string; gradient: string; title: string; subtitle: string }) {
-  return (
-    <Link href={href} className="group card flex items-center gap-4 p-3.5 transition active:scale-[0.98]">
-      <span className={`grid size-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br text-2xl shadow-lg ${gradient}`}>{icon}</span>
-      <span className="min-w-0 flex-1">
-        <span className="block font-bold">{title}</span>
-        <span className="block text-sm text-white/60">{subtitle}</span>
-      </span>
-      <span className="text-2xl text-white/40 transition group-hover:translate-x-1">›</span>
-    </Link>
-  );
-}
-
-function Tile({ href, icon, label }: { href: string; icon: ReactNode; label: string }) {
-  return (
-    <Link href={href} className="card flex flex-col items-center gap-1 py-3 text-sm font-semibold transition active:scale-95">
-      <span className="text-2xl">{icon}</span>
-      {label}
-    </Link>
-  );
-}
+const GATE_PERKS = [
+  { icon: Icon.Chat, title: 'Messages privés', text: 'Discute en direct avec tes amis.' },
+  { icon: Icon.PersonAdd, title: 'Ajoute tes amis', text: 'Retrouve-les avec leur pseudo LuChat.' },
+  { icon: Icon.Bell, title: 'Notifications', text: 'Sois prévenu à chaque nouveau message.' },
+];
 
 function SocialGate() {
   return (
-    <EmptyState icon="🔐" title="Connecte-toi pour discuter">
-      Les chats et les amis sont liés à ton compte Ludo. Crée un compte ou connecte-toi pour ajouter des amis et leur
-      écrire.
-      <Link href="/compte" className="btn btn-primary mt-4 w-full">
-        Ouvrir mon compte
+    <section className="flex flex-col items-center px-2 pt-8 text-center">
+      <div className="relative mb-6">
+        <span className="absolute inset-0 -m-6 rounded-full bg-[#00a884]/10 blur-xl" />
+        <span className="relative grid size-28 place-items-center rounded-full bg-gradient-to-br from-[#00a884]/25 to-[#00a884]/5 ring-1 ring-[#00a884]/30">
+          <Icon.Chat size={52} className="text-[#00a884]" />
+        </span>
+        <span className="absolute -right-1 -bottom-1 grid size-10 place-items-center rounded-full bg-[#1f2c33] text-[#e9edef] ring-4 ring-[#0b141a]">
+          <Icon.Lock size={20} />
+        </span>
+      </div>
+
+      <h2 className="text-[22px] font-semibold text-[#e9edef]">Connecte-toi pour discuter</h2>
+      <p className="mt-2 max-w-xs text-[14.5px] leading-relaxed text-[#8696a0]">
+        Les discussions et les amis sont liés à ton compte LuChat.
+      </p>
+
+      <ul className="mt-7 w-full overflow-hidden rounded-2xl bg-[#1f2c33] text-left">
+        {GATE_PERKS.map(({ icon: PerkIcon, title, text }, i) => (
+          <li key={title} className="flex items-center gap-4 px-4">
+            <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[#00a884]/15 text-[#00a884]">
+              <PerkIcon size={22} />
+            </span>
+            <span className={`min-w-0 flex-1 py-3.5 ${i > 0 ? 'border-t border-white/[0.06]' : ''}`}>
+              <span className="block text-[15px] font-medium text-[#e9edef]">{title}</span>
+              <span className="block text-[13px] text-[#8696a0]">{text}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      <Link
+        href="/compte"
+        className="mt-7 flex h-12 w-full items-center justify-center rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] shadow-lg shadow-[#00a884]/20 transition active:scale-[0.98] active:opacity-90"
+      >
+        Créer un compte
       </Link>
-    </EmptyState>
+      <Link
+        href="/compte?mode=login"
+        className="mt-3 flex h-12 w-full items-center justify-center rounded-full border border-[#2a3942] text-[15px] font-semibold text-[#00a884] transition active:bg-white/5"
+      >
+        J’ai déjà un compte
+      </Link>
+      <p className="mt-5 flex items-center gap-1.5 text-[12.5px] text-[#8696a0]">
+        <Icon.Shield size={16} />
+        Gratuit, sans e-mail ni numéro de téléphone
+      </p>
+    </section>
   );
 }
 
-function formatTime(value: number) {
-  return new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' }).format(value);
-}
-
-function initials(username: string) {
-  return username.slice(0, 2).toUpperCase();
-}
+const TAB_TITLE: Record<Tab, string> = { chats: 'Discussions', friends: 'Amis', games: 'Jeux', profile: 'Profil' };
 
 function TabButton({
   active,
-  icon,
+  name,
   label,
   badge,
   onClick,
 }: {
   active: boolean;
-  icon: string;
+  name: Tab;
   label: string;
   badge?: number;
   onClick: () => void;
@@ -109,42 +119,135 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`relative flex flex-1 flex-col items-center gap-1 rounded-2xl px-2 py-2 text-xs font-bold transition ${
-        active ? 'bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-950/30' : 'text-white/65 hover:bg-white/10'
+      aria-current={active ? 'page' : undefined}
+      className={`relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition ${
+        active ? 'text-[#00a884]' : 'text-[#8696a0]'
       }`}
     >
-      <span className="text-xl">{icon}</span>
+      <span className="relative">
+        <TabIcon name={name} filled={active} />
+        {!!badge && (
+          <span className="absolute -top-1.5 -right-2.5 grid min-w-4 place-items-center rounded-full bg-[#00a884] px-1 text-[10px] font-bold text-[#0b141a]">
+            {badge}
+          </span>
+        )}
+      </span>
       {label}
-      {!!badge && (
-        <span className="absolute right-4 top-1 grid min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[10px] text-white">
-          {badge}
-        </span>
-      )}
     </button>
   );
 }
 
 export default function HomePage() {
-  const [help, setHelp] = useState(false);
   const [tab, setTab] = useState<Tab>('chats');
+  const [tabRestored, setTabRestored] = useState(false);
   const [social, setSocial] = useState<SocialState | null>(null);
   const [loadingSocial, setLoadingSocial] = useState(false);
   const [activeChat, setActiveChat] = useState<string | null>(null);
-  const [thread, setThread] = useState<ChatMessage[]>([]);
+  const [thread, setThread] = useState<ThreadItem[]>([]);
+  const [threadLevel, setThreadLevel] = useState<number | null>(null);
+  const [threadGroup, setThreadGroup] = useState<GroupView | null>(null);
+  const [newGroupOpen, setNewGroupOpen] = useState(false);
+  const [groupInfoOpen, setGroupInfoOpen] = useState(false);
   const [loadingThread, setLoadingThread] = useState(false);
-  const [friendName, setFriendName] = useState('');
-  const [messageText, setMessageText] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { profile, ready, session } = useProfile();
+  const { session } = useProfile();
 
   useEffect(() => {
+    if (!notice && !error) return;
+    const timer = setTimeout(() => {
+      setNotice(null);
+      setError(null);
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [notice, error]);
+  const nextPendingId = useRef(-1);
+  const photoUploads = useRef<Promise<unknown>>(Promise.resolve());
+
+  const reloadSocial = useCallback(() => {
+    getSocialState()
+      .then(setSocial)
+      .catch(() => {});
+  }, []);
+
+  /** Moves a conversation (friend's username or group key) to the top with its newest message. */
+  const bumpConversation = (key: string, message: ChatMessage, unreadDelta: number) => {
+    setSocial((s) => {
+      if (!s) return s;
+      const bump = <C extends { lastMessage: ChatMessage | null; unread: number }>(list: C[], match: (c: C) => boolean): C[] | null => {
+        const conversation = list.find(match);
+        if (!conversation) return null;
+        const newer = !conversation.lastMessage || conversation.lastMessage.id <= message.id;
+        const updated = { ...conversation, lastMessage: newer ? message : conversation.lastMessage, unread: conversation.unread + unreadDelta };
+        return [updated, ...list.filter((c) => c !== conversation)];
+      };
+      const groups = bump(s.groups, (g) => g.group.key === key);
+      if (groups) return { ...s, groups };
+      const conversations = bump(s.conversations, (c) => c.friend.username === key);
+      return conversations ? { ...s, conversations } : s;
+    });
+  };
+
+  const knownConversation = (key: string) =>
+    !!social && (social.conversations.some((c) => c.friend.username === key) || social.groups.some((g) => g.group.key === key));
+
+  const chat = useChat(!!session, {
+    onMessage: (message) => {
+      const friend = message.group || message.mine ? message.to : message.from;
+      if (!knownConversation(friend)) {
+        reloadSocial();
+        return;
+      }
+      const open = activeChat === friend;
+      if (open) {
+        setThread((t) => (t.some((m) => m.id === message.id) ? t : [...t, message]));
+        if (!message.mine) chat.markRead(friend);
+      }
+      bumpConversation(friend, message, !message.mine && !open ? 1 : 0);
+    },
+    onRead: ({ by, upTo, at }) => {
+      const mark = <M extends ChatMessage>(m: M): M => (m.mine && m.to === by && m.id > 0 && m.id <= upTo && !m.readAt ? { ...m, readAt: at } : m);
+      setThread((t) => t.map(mark));
+      setSocial(
+        (s) =>
+          s && {
+            ...s,
+            conversations: s.conversations.map((c) => (c.lastMessage ? { ...c, lastMessage: mark(c.lastMessage) } : c)),
+            groups: s.groups.map((g) => (g.lastMessage ? { ...g, lastMessage: mark(g.lastMessage) } : g)),
+          },
+      );
+    },
+    onSocialChanged: reloadSocial,
+    onUpdated: (message) => {
+      setThread((t) => t.map((m) => (m.id === message.id ? message : m)));
+      setSocial(
+        (s) =>
+          s && {
+            ...s,
+            conversations: s.conversations.map((c) => (c.lastMessage?.id === message.id ? { ...c, lastMessage: message } : c)),
+            groups: s.groups.map((g) => (g.lastMessage?.id === message.id ? { ...g, lastMessage: message } : g)),
+          },
+      );
+    },
+    onRemoved: (id) => {
+      setThread((t) => t.filter((m) => m.id !== id));
+      if (social?.conversations.some((c) => c.lastMessage?.id === id) || social?.groups.some((g) => g.lastMessage?.id === id)) reloadSocial();
+    },
+  });
+
+  // Only a sign-out closes the chats: before the saved session is read, there is none yet.
+  const hadSession = useRef(false);
+  useEffect(() => {
     if (!session) {
-      setSocial(null);
-      setActiveChat(null);
-      setThread([]);
+      if (hadSession.current) {
+        setSocial(null);
+        setActiveChat(null);
+        setThread([]);
+      }
+      hadSession.current = false;
       return;
     }
+    hadSession.current = true;
 
     let alive = true;
     setLoadingSocial(true);
@@ -153,7 +256,6 @@ export default function HomePage() {
       .then((data) => {
         if (!alive) return;
         setSocial(data);
-        setActiveChat((current) => current ?? data.conversations[0]?.friend.username ?? null);
       })
       .catch((err) => alive && setError(err instanceof Error ? err.message : 'Impossible de charger les chats.'))
       .finally(() => alive && setLoadingSocial(false));
@@ -172,7 +274,12 @@ export default function HomePage() {
     let alive = true;
     setLoadingThread(true);
     getThread(activeChat)
-      .then((data) => alive && setThread(data.messages))
+      .then((data) => {
+        if (!alive) return;
+        setThread(data.messages);
+        setThreadLevel(data.friend.level);
+        setThreadGroup(data.group ?? null);
+      })
       .catch((err) => alive && setError(err instanceof Error ? err.message : 'Impossible de charger la conversation.'))
       .finally(() => alive && setLoadingThread(false));
 
@@ -181,369 +288,372 @@ export default function HomePage() {
     };
   }, [activeChat, session]);
 
+  // Catch up on whatever arrived while the connection was down.
+  const { connected } = chat;
+  useEffect(() => {
+    if (!connected) return;
+    reloadSocial();
+    if (!activeChat) return;
+    getThread(activeChat)
+      .then((data) => setThread((t) => [...data.messages, ...t.filter((m) => m.id < 0)]))
+      .catch(() => {});
+    // Only on (re)connection; opening a chat loads its thread above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, reloadSocial]);
+
   const activeConversation = useMemo(
     () => social?.conversations.find((conversation) => conversation.friend.username === activeChat) ?? null,
     [activeChat, social],
   );
+  /** Kept current by the social state, so renames and member changes show at once. */
+  const activeGroup = useMemo(
+    () => (activeChat?.startsWith('g:') ? (social?.groups.find((g) => g.group.key === activeChat)?.group ?? threadGroup) : null),
+    [activeChat, social, threadGroup],
+  );
+  const forwardTargets = useMemo(
+    () => (social ? chatRows(social.conversations, social.groups).map(({ key, name, group }) => ({ key, name, group })) : []),
+    [social],
+  );
 
-  const addFriend = async (e: FormEvent) => {
-    e.preventDefault();
-    const username = friendName.trim();
-    if (!username) return;
-    setError(null);
-    setNotice(null);
-    try {
-      const res = await sendFriendRequest(username);
-      setSocial(res);
-      setFriendName('');
-      setNotice(res.message);
-      if (res.status === 'accepted' || res.status === 'already_friends') {
-        setActiveChat(username);
-        setTab('chats');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Invitation impossible.');
+  // Removed from the group while looking at it: back to the list.
+  useEffect(() => {
+    if (activeChat?.startsWith('g:') && social && threadGroup && !social.groups.some((g) => g.group.key === activeChat)) {
+      setActiveChat(null);
+      setGroupInfoOpen(false);
     }
+  }, [activeChat, social, threadGroup]);
+
+  const totalUnread = (social?.conversations.reduce((sum, c) => sum + c.unread, 0) ?? 0) + (social?.groups.reduce((sum, g) => sum + g.unread, 0) ?? 0);
+
+  const openChat = (key: string) => {
+    setActiveChat(key);
+    setThreadGroup(null);
+    setGroupInfoOpen(false);
+    setTab('chats');
+    setSocial(
+      (s) =>
+        s && {
+          ...s,
+          conversations: s.conversations.map((c) => (c.friend.username === key ? { ...c, unread: 0 } : c)),
+          groups: s.groups.map((g) => (g.group.key === key ? { ...g, unread: 0 } : g)),
+        },
+    );
+  };
+  const openChatRef = useRef(openChat);
+  useEffect(() => {
+    openChatRef.current = openChat;
+  });
+
+  useEffect(() => {
+    setViewingChat(tab === 'chats' ? activeChat : null);
+    return () => setViewingChat(null);
+  }, [tab, activeChat]);
+
+  // Notification taps: from another screen via ?chat=…, or while this screen is open.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get('chat');
+    const requestedTab = params.get('tab') as Tab | null;
+    if (requested) openChatRef.current(requested);
+    else if (requestedTab && TABS.includes(requestedTab)) setTab(requestedTab);
+    setTabRestored(true);
+    return onOpenChatRequest((username) => openChatRef.current(username));
+  }, []);
+
+  // The open tab lives in the address, so a refresh stays on it.
+  useEffect(() => {
+    if (!tabRestored) return;
+    const url = tab === 'chats' ? '/' : `/?tab=${tab}`;
+    if (window.location.pathname + window.location.search !== url) window.history.replaceState(window.history.state, '', url);
+  }, [tab, tabRestored]);
+
+  const deliver = (item: ThreadItem) => {
+    const image = item.kind === 'image' ? parseChatImage(item.body) : null;
+    const send = () =>
+      item.kind === 'voice' && item.localBlob
+        ? uploadVoice(item.to, item.localBlob, item.durationMs ?? 0, item.replyTo?.id)
+        : image && item.localBlob
+          ? uploadImage(item.to, item.localBlob, image, image.caption, item.replyTo?.id)
+          : chat.send(item.to, item.body, item.replyTo?.id);
+    let sending: ReturnType<typeof send>;
+    if (image) {
+      // Photos picked together go up one after the other, so they arrive in the order chosen.
+      sending = photoUploads.current.then(send, send);
+      photoUploads.current = sending.catch(() => {});
+    } else sending = send();
+    sending
+      .then((saved) => {
+        setThread((t) => (t.some((m) => m.id === saved.id) ? t.filter((m) => m.id !== item.id) : t.map((m) => (m.id === item.id ? saved : m))));
+        if (image && item.localUrl) rememberMedia(saved.id, item.localUrl);
+        else if (item.localUrl) setTimeout(() => URL.revokeObjectURL(item.localUrl!), 60_000);
+        bumpConversation(item.to, saved, 0);
+      })
+      .catch(() => setThread((t) => t.map((m) => (m.id === item.id ? { ...m, pending: false, failed: true } : m))));
   };
 
-  const answerRequest = async (username: string, action: 'accept' | 'decline') => {
-    setError(null);
-    setNotice(null);
-    try {
-      const res = await respondToFriendRequest(username, action);
-      setSocial(res);
-      setNotice(res.message);
-      if (action === 'accept') {
-        setActiveChat(username);
-        setTab('chats');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action impossible.');
-    }
+  const queue = (fields: Partial<ThreadItem>) => {
+    if (!activeChat || !session) return;
+    const item: ThreadItem = {
+      id: nextPendingId.current--,
+      from: session.username,
+      to: activeChat,
+      group: activeGroup?.id ?? null,
+      mine: true,
+      body: '',
+      createdAt: Date.now(),
+      readAt: null,
+      kind: 'text',
+      durationMs: null,
+      replyTo: null,
+      forwarded: false,
+      deleted: false,
+      reactions: [],
+      pending: true,
+      ...fields,
+    };
+    setThread((t) => [...t, item]);
+    deliver(item);
   };
 
-  const sendMessage = async (e: FormEvent) => {
-    e.preventDefault();
-    const body = messageText.trim();
-    if (!activeChat || !body) return;
-    setError(null);
-    try {
-      const res = await sendChatMessage(activeChat, body);
-      setSocial(res);
-      setThread((messages) => [...messages, res.message]);
-      setMessageText('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Message non envoyé.');
-    }
+  const sendMessage = (body: string, replyTo: ChatReplyPreview | null) => queue({ body, replyTo });
+
+  const sendVoice = (recording: Recording, replyTo: ChatReplyPreview | null) =>
+    queue({
+      kind: 'voice',
+      durationMs: recording.durationMs,
+      replyTo,
+      localBlob: recording.blob,
+      localUrl: URL.createObjectURL(recording.blob),
+    });
+
+  const sendImages = (photos: OutgoingPhoto[], replyTo: ChatReplyPreview | null) =>
+    photos.forEach(({ image, caption }, i) =>
+      queue({
+        kind: 'image',
+        body: JSON.stringify({ width: image.width, height: image.height, caption }),
+        replyTo: i === 0 ? replyTo : null,
+        localBlob: image.blob,
+        localUrl: image.url,
+      }),
+    );
+
+  const reactTo = async (id: number, emoji: string | null) => {
+    await chat.react(id, emoji);
+  };
+
+  const deleteMessage = async (id: number, forAll: boolean) => {
+    await chat.remove(id, forAll);
+  };
+
+  const editMessage = async (id: number, body: string) => {
+    await chat.edit(id, body);
+  };
+
+  const forwardMessage = async (id: number, to: string[]) => {
+    const sent = await chat.forward(id, to);
+    for (const message of sent) bumpConversation(message.to, message, 0);
+  };
+
+  const reportMessage = async (id: number, reason: string) => {
+    await api('/messages/report', { token: getSessionToken(), body: { id, reason } });
+  };
+
+  const retryMessage = (item: ThreadItem) => {
+    setThread((t) => t.map((m) => (m.id === item.id ? { ...m, pending: true, failed: false } : m)));
+    deliver(item);
   };
 
   const renderChats = () => {
     if (!session) return <SocialGate />;
-    if (loadingSocial) return <EmptyState icon="⏳" title="Chargement des chats">On prépare tes conversations…</EmptyState>;
-    if (!social || social.friends.length === 0) {
+    if (loadingSocial)
       return (
-        <EmptyState icon="💬" title="Aucune conversation">
-          Ajoute un ami avec son pseudo Ludo, puis commence une discussion privée.
-          <button type="button" onClick={() => setTab('friends')} className="btn btn-primary mt-4 w-full">
+        <EmptyState icon={<Icon.Hourglass size={36} />} title="Chargement des chats">
+          On prépare tes conversations…
+        </EmptyState>
+      );
+    if (!social || (social.friends.length === 0 && social.groups.length === 0)) {
+      return (
+        <EmptyState icon={<Icon.Chat size={36} />} title="Aucune conversation">
+          Ajoute un ami avec son pseudo LuChat, puis commence une discussion privée.
+          <button
+            type="button"
+            onClick={() => setTab('friends')}
+            className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] active:opacity-90"
+          >
+            <Icon.PersonAdd size={20} />
             Ajouter un ami
           </button>
         </EmptyState>
       );
     }
 
+    if (!activeChat) {
+      return (
+        <>
+          <NotificationsPrompt />
+          <ChatList
+            me={session.username}
+            conversations={social.conversations}
+            groups={social.groups}
+            online={chat.online}
+            typing={chat.typing}
+            onOpen={openChat}
+            onNewGroup={() => setNewGroupOpen(true)}
+          />
+          <NewGroupSheet
+            open={newGroupOpen}
+            friends={social.friends.map((f) => f.username)}
+            onClose={() => setNewGroupOpen(false)}
+            onCreated={(group, state) => {
+              setSocial(state);
+              openChat(group.key);
+            }}
+          />
+        </>
+      );
+    }
+
     return (
-      <section className="flex flex-col gap-3">
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {social.conversations.map((conversation) => (
-            <button
-              key={conversation.friend.username}
-              type="button"
-              onClick={() => setActiveChat(conversation.friend.username)}
-              className={`flex min-w-48 items-center gap-3 rounded-3xl border p-3 text-left transition ${
-                activeChat === conversation.friend.username
-                  ? 'border-emerald-300 bg-emerald-400/20'
-                  : 'border-white/10 bg-white/[0.07]'
-              }`}
-            >
-              <span className="grid size-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-emerald-300 to-teal-700 text-sm font-black text-white">
-                {initials(conversation.friend.username)}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-bold">{conversation.friend.username}</span>
-                <span className="block truncate text-xs text-white/60">
-                  {conversation.lastMessage?.body ?? 'Nouveau chat'}
-                </span>
-              </span>
-            </button>
-          ))}
-        </div>
-
-        <div className="card flex min-h-[440px] flex-col overflow-hidden">
-          <header className="flex items-center gap-3 border-b border-white/10 bg-white/5 p-3">
-            <span className="grid size-11 place-items-center rounded-full bg-gradient-to-br from-emerald-300 to-teal-700 text-sm font-black">
-              {initials(activeConversation?.friend.username ?? activeChat ?? '?')}
-            </span>
-            <div className="min-w-0 flex-1">
-              <h2 className="truncate font-bold">{activeConversation?.friend.username ?? activeChat}</h2>
-              <p className="text-xs text-white/50">Ami Ludo · niveau {activeConversation?.friend.level ?? '—'}</p>
-            </div>
-            <Link href="/online" className="btn btn-ghost px-3 py-2 text-sm">
-              🎲 Inviter
-            </Link>
-          </header>
-
-          <div className="flex max-h-[360px] min-h-[280px] flex-1 flex-col gap-2 overflow-y-auto p-3">
-            {loadingThread ? (
-              <p className="m-auto text-sm text-white/50">Chargement…</p>
-            ) : thread.length === 0 ? (
-              <p className="m-auto max-w-56 text-center text-sm text-white/55">Dis bonjour et propose une partie de Ludo.</p>
-            ) : (
-              thread.map((message) => (
-                <div key={message.id} className={`flex ${message.mine ? 'justify-end' : 'justify-start'}`}>
-                  <div
-                    className={`max-w-[78%] rounded-3xl px-4 py-2 text-sm shadow ${
-                      message.mine ? 'rounded-br-md bg-emerald-500 text-white' : 'rounded-bl-md bg-white/12 text-white'
-                    }`}
-                  >
-                    <p className="whitespace-pre-wrap break-words">{message.body}</p>
-                    <p className={`mt-1 text-right text-[10px] ${message.mine ? 'text-emerald-50/70' : 'text-white/45'}`}>
-                      {formatTime(message.createdAt)}
-                    </p>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          <form onSubmit={sendMessage} className="flex items-center gap-2 border-t border-white/10 bg-black/15 p-3">
-            <input
-              value={messageText}
-              onChange={(e) => setMessageText(e.target.value)}
-              maxLength={500}
-              placeholder="Écrire un message"
-              className="min-w-0 flex-1 rounded-2xl bg-white/10 px-4 py-3 outline-none ring-emerald-300/50 placeholder:text-white/35 focus:ring-2"
-            />
-            <button type="submit" disabled={!messageText.trim()} className="btn btn-primary px-4">
-              Envoyer
-            </button>
-          </form>
-        </div>
-      </section>
+      <>
+      <ChatThread
+        key={activeChat}
+        me={session.username}
+        friend={activeChat}
+        group={activeGroup}
+        forwardTargets={forwardTargets.filter((t) => t.key !== activeChat)}
+        level={activeConversation?.friend.level ?? threadLevel}
+        online={!activeGroup && chat.online.has(activeChat)}
+        typers={chat.typing.get(activeChat) ?? []}
+        connected={chat.connected}
+        messages={thread}
+        loading={loadingThread}
+        onBack={() => setActiveChat(null)}
+        onSend={sendMessage}
+        onSendVoice={sendVoice}
+        onSendImages={sendImages}
+        onRetry={retryMessage}
+        onTyping={() => chat.notifyTyping(activeChat)}
+        onReact={reactTo}
+        onDelete={deleteMessage}
+        onEdit={editMessage}
+        onForward={forwardMessage}
+        onReport={reportMessage}
+        onOpenGroupInfo={() => setGroupInfoOpen(true)}
+      />
+      {activeGroup && (
+        <GroupInfoSheet
+          key={`info-${activeGroup.key}`}
+          open={groupInfoOpen}
+          group={activeGroup}
+          me={session.username}
+          friends={social.friends.map((f) => f.username)}
+          online={chat.online}
+          onClose={() => setGroupInfoOpen(false)}
+          onSocial={setSocial}
+          onLeft={() => {
+            setGroupInfoOpen(false);
+            setActiveChat(null);
+          }}
+          onMessage={(message) => {
+            setError(null);
+            setNotice(message);
+          }}
+        />
+      )}
+      </>
     );
   };
 
   const renderFriends = () => {
     if (!session) return <SocialGate />;
     return (
-      <section className="flex flex-col gap-4">
-        <form onSubmit={addFriend} className="card flex flex-col gap-3 p-4">
-          <div>
-            <h2 className="text-xl font-bold">Ajouter un ami</h2>
-            <p className="text-sm text-white/60">Entre son pseudo Ludo exact pour envoyer une invitation.</p>
-          </div>
-          <div className="flex gap-2">
-            <input
-              value={friendName}
-              onChange={(e) => setFriendName(e.target.value)}
-              autoCapitalize="none"
-              autoComplete="off"
-              maxLength={16}
-              placeholder="Pseudo de ton ami"
-              className="min-w-0 flex-1 rounded-2xl bg-black/25 px-4 py-3 outline-none ring-emerald-300/50 placeholder:text-white/35 focus:ring-2"
-            />
-            <button type="submit" className="btn btn-primary">
-              Ajouter
-            </button>
-          </div>
-        </form>
-
-        {!!social?.incoming.length && (
-          <section className="card flex flex-col gap-3 p-4">
-            <h2 className="font-bold">Invitations reçues</h2>
-            {social.incoming.map((request) => (
-              <div key={request.username} className="flex items-center gap-3">
-                <span className="grid size-11 place-items-center rounded-full bg-white/10 font-bold">{initials(request.username)}</span>
-                <span className="min-w-0 flex-1 font-semibold">{request.username}</span>
-                <button type="button" onClick={() => answerRequest(request.username, 'decline')} className="btn btn-ghost px-3 py-2 text-sm">
-                  Refuser
-                </button>
-                <button type="button" onClick={() => answerRequest(request.username, 'accept')} className="btn btn-primary px-3 py-2 text-sm">
-                  Accepter
-                </button>
-              </div>
-            ))}
-          </section>
-        )}
-
-        <section className="card flex flex-col gap-3 p-4">
-          <h2 className="font-bold">Mes amis</h2>
-          {social?.friends.length ? (
-            social.friends.map((friend) => (
-              <button
-                key={friend.username}
-                type="button"
-                onClick={() => {
-                  setActiveChat(friend.username);
-                  setTab('chats');
-                }}
-                className="flex items-center gap-3 rounded-2xl bg-white/5 p-3 text-left transition hover:bg-white/10"
-              >
-                <span className="grid size-12 place-items-center rounded-full bg-gradient-to-br from-emerald-300 to-teal-700 text-sm font-black">
-                  {initials(friend.username)}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block font-bold">{friend.username}</span>
-                  <span className="block text-sm text-white/55">Niveau {friend.level} · {friend.wins} victoire(s)</span>
-                </span>
-                <span className="text-white/40">›</span>
-              </button>
-            ))
-          ) : (
-            <p className="text-sm text-white/60">Tu n’as pas encore d’ami ajouté.</p>
-          )}
-        </section>
-
-        {!!social?.outgoing.length && (
-          <section className="card p-4">
-            <h2 className="font-bold">Invitations envoyées</h2>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {social.outgoing.map((request) => (
-                <span key={request.username} className="rounded-full bg-white/10 px-3 py-1 text-sm text-white/70">
-                  {request.username}
-                </span>
-              ))}
-            </div>
-          </section>
-        )}
-      </section>
+      <FriendsTab
+        me={session.username}
+        social={social}
+        online={chat.online}
+        onSocial={setSocial}
+        onOpenChat={openChat}
+        onNotice={(message) => {
+          setError(null);
+          setNotice(message);
+        }}
+        onError={(message) => {
+          setNotice(null);
+          setError(message);
+        }}
+      />
     );
   };
 
-  const renderGames = () => (
-    <section className="flex flex-col gap-4">
-      <div className="card overflow-hidden">
-        <div className="bg-gradient-to-br from-emerald-400/35 via-sky-500/20 to-fuchsia-500/25 p-5 text-center">
-          <Logo />
-          <h2 className="mt-4 text-4xl font-bold tracking-tight">
-            {'LUDO'.split('').map((l, i) => (
-              <span key={i} style={{ color: COLOR_HEX[LOGO_COLORS[i]] }} className="drop-shadow-[0_3px_0_rgba(0,0,0,0.35)]">
-                {l}
-              </span>
-            ))}
-          </h2>
-          <p className="mt-1 text-sm text-white/75">Premier jeu disponible. D’autres jeux arriveront plus tard.</p>
-        </div>
-        <div className="flex flex-col gap-2.5 p-3">
-          <MenuLink
-            href="/rapide"
-            icon="⚡"
-            gradient="from-amber-300 to-orange-500"
-            title="Partie rapide"
-            subtitle="Joue en ligne contre d’autres joueurs"
-          />
-          <MenuLink
-            href="/local"
-            icon="🎲"
-            gradient="from-emerald-400 to-emerald-600"
-            title="Jouer sur cet écran"
-            subtitle="Entre amis et/ou contre l’ordinateur"
-          />
-          <MenuLink
-            href="/online"
-            icon="🔒"
-            gradient="from-sky-400 to-indigo-600"
-            title="Salon privé"
-            subtitle="Invite tes amis avec un code"
-          />
-        </div>
-      </div>
-
-      {ready && !profile.tutorialDone && (
-        <Link
-          href="/tutoriel"
-          className="pop-in flex items-center gap-3 rounded-3xl bg-gradient-to-r from-fuchsia-500/80 to-indigo-500/80 p-4 shadow-lg transition active:scale-[0.98]"
-        >
-          <span className="text-3xl">🎓</span>
-          <span className="min-w-0 flex-1">
-            <span className="block font-bold">Nouveau ? Apprends en 2 minutes</span>
-            <span className="block text-sm text-white/80">Tutoriel guidé · +50 pièces</span>
-          </span>
-          <span className="text-2xl">›</span>
-        </Link>
-      )}
-
-      <div className="grid grid-cols-3 gap-2.5">
-        <Tile href="/boutique" icon="🛍️" label="Boutique" />
-        <Tile href="/classement" icon="🏆" label="Classement" />
-        <Tile href="/profil" icon="🏅" label="Badges" />
-      </div>
-
-      <div className="grid grid-cols-2 gap-2.5">
-        <div className="card p-4 opacity-70">
-          <p className="text-2xl">🃏</p>
-          <p className="font-bold">Cartes</p>
-          <p className="text-xs text-white/55">Bientôt</p>
-        </div>
-        <div className="card p-4 opacity-70">
-          <p className="text-2xl">⚽</p>
-          <p className="font-bold">Défis</p>
-          <p className="text-xs text-white/55">Bientôt</p>
-        </div>
-      </div>
-
-      <DailyCard />
-
-      <button type="button" onClick={() => setHelp(true)} className="btn btn-ghost">
-        📖 Règles du jeu
-      </button>
-    </section>
-  );
+  const renderGames = () => <GamesCatalog />;
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-4 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-28">
-      <header className="sticky top-0 z-10 -mx-4 bg-[#0f1029]/85 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-xl">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.25em] text-emerald-300">Ludo Social</p>
-            <h1 className="text-3xl font-black">Discussions</h1>
-          </div>
+    <div className="min-h-dvh overflow-x-hidden bg-[#0b141a] text-[#e9edef]">
+    <main className="mx-auto flex min-h-dvh max-w-md flex-col px-4 pb-24">
+      <header className={`sticky top-0 z-10 -mx-4 items-center justify-between gap-3 bg-[#1f2c33] px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] ${activeChat && tab === 'chats' ? 'hidden' : 'flex'}`}>
+        {tab === 'chats' ? (
+          <h1 className="flex shrink-0 items-center gap-2">
+            <LuChatLogo size={30} />
+            <LuChatWordmark />
+            <span className="sr-only">Discussions</span>
+          </h1>
+        ) : (
+          <h1 className="shrink-0 text-[1.35rem] font-medium tracking-tight">{TAB_TITLE[tab]}</h1>
+        )}
+        <div className="flex min-w-0 items-center justify-end gap-2">
           <CoinBadge />
-        </div>
-        <div className="mt-3 flex items-center justify-between gap-2">
-        <ProfileChip />
-          <Link href="/compte" className="btn btn-ghost px-3 py-2 text-sm">
-            Compte
-          </Link>
         </div>
       </header>
 
       {(notice || error) && (
-        <div className={`pop-in rounded-2xl p-3 text-center text-sm font-semibold ${error ? 'bg-red-500/20 text-red-100' : 'bg-emerald-500/20 text-emerald-100'}`}>
-          {error ?? notice}
+        <div className="pointer-events-none fixed inset-x-0 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-30 flex justify-center px-4">
+          <p
+            role="status"
+            className={`pop-in pointer-events-auto flex max-w-md items-center gap-2 rounded-xl px-4 py-3 text-[14px] shadow-xl ${
+              error ? 'bg-[#f15c6d] text-[#0b141a]' : 'bg-[#e9edef] text-[#0b141a]'
+            }`}
+          >
+            {error ? <Icon.Info size={18} className="shrink-0" /> : <Icon.Check size={18} className="shrink-0" />}
+            {error ?? notice}
+          </p>
         </div>
       )}
 
-      {tab === 'chats' && renderChats()}
-      {tab === 'friends' && renderFriends()}
-      {tab === 'games' && renderGames()}
+      {tabRestored && tab === 'chats' && renderChats()}
+      {tabRestored && tab === 'friends' && renderFriends()}
+      {tabRestored && tab === 'games' && renderGames()}
+      {tabRestored && tab === 'profile' && (
+        <div className="pt-4">
+          <ProfileView />
+        </div>
+      )}
 
-      <nav className="fixed inset-x-0 bottom-0 z-20 mx-auto max-w-md border-t border-white/10 bg-[#10122c]/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl">
-        <div className="flex gap-2 rounded-3xl bg-black/20 p-1.5">
-          <TabButton active={tab === 'chats'} icon="💬" label="Chats" onClick={() => setTab('chats')} />
+      {tabRestored && !activeChat && <DailyBonusPrompt />}
+
+      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-[#222d34] bg-[#0b141a] pb-[max(0.25rem,env(safe-area-inset-bottom))]">
+        <div className="mx-auto flex max-w-md">
+          <TabButton
+            active={tab === 'chats'}
+            name="chats"
+            label="Discussions"
+            badge={totalUnread}
+            onClick={() => {
+              setActiveChat(null);
+              setTab('chats');
+            }}
+          />
           <TabButton
             active={tab === 'friends'}
-            icon="👥"
+            name="friends"
             label="Amis"
             badge={social?.incoming.length}
             onClick={() => setTab('friends')}
           />
-          <TabButton active={tab === 'games'} icon="🎮" label="Games" onClick={() => setTab('games')} />
+          <TabButton active={tab === 'games'} name="games" label="Jeux" onClick={() => setTab('games')} />
+          <TabButton active={tab === 'profile'} name="profile" label="Profil" onClick={() => setTab('profile')} />
         </div>
       </nav>
-
-      <Sheet open={help} title="Comment jouer" onClose={() => setHelp(false)}>
-        <HowToPlay />
-      </Sheet>
     </main>
+    </div>
   );
 }

@@ -21,6 +21,7 @@ import { useAnimatedPawns } from '@/lib/animation';
 import { useAppearance } from '@/lib/appearance';
 import { finishTutorial } from '@/lib/profile';
 import { sfx } from '@/lib/sound';
+import { BackButton } from '@/components/BackButton';
 
 interface Step {
   /** Builds the board for this step; omitted to continue from the previous one. */
@@ -137,9 +138,7 @@ export default function TutorialPage() {
     <div className="flex min-h-dvh flex-col items-center justify-center px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <div className="flex w-full flex-col gap-3" style={{ maxWidth: 'max(300px, min(100%, calc(100dvh - 260px)))' }}>
         <header className="flex items-center gap-2">
-          <Link href="/" className="icon-btn" aria-label="Quitter le tutoriel">
-            ←
-          </Link>
+          <BackButton href="/ludo" label="Quitter le tutoriel" text="Ludo" compact />
           <div className="flex flex-1 justify-center gap-1.5">
             {STEPS.map((_, i) => (
               <span
@@ -211,7 +210,7 @@ export default function TutorialPage() {
                 <Link href="/rapide" className="btn btn-light">
                   Partie rapide en ligne
                 </Link>
-                <Link href="/" className="btn btn-ghost">
+                <Link href="/ludo" className="btn btn-ghost">
                   Menu
                 </Link>
               </div>

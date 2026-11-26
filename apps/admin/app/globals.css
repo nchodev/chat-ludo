@@ -1,0 +1,83 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Roboto', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --color-bg: #0b141a;
+  --color-surface: #111b21;
+  --color-raised: #1f2c33;
+  --color-line: #2a3942;
+  --color-text: #e9edef;
+  --color-muted: #8696a0;
+  --color-accent: #00a884;
+  --color-danger: #f15c6d;
+  --color-warn: #ffbc38;
+  --color-info: #53bdeb;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  -webkit-tap-highlight-color: transparent;
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-line/60 bg-surface;
+  }
+  .btn {
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-full px-4 text-[14px] font-medium transition select-none active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply bg-accent text-[#0b141a] hover:brightness-110;
+  }
+  .btn-tonal {
+    @apply bg-raised text-text hover:bg-line;
+  }
+  .btn-danger {
+    @apply bg-danger/15 text-danger hover:bg-danger/25;
+  }
+  .btn-ghost {
+    @apply text-accent hover:bg-accent/10;
+  }
+  .field {
+    @apply h-11 w-full rounded-xl border border-line bg-bg px-3 text-[14.5px] text-text outline-none placeholder:text-muted/70 focus:border-accent;
+  }
+  .label {
+    @apply mb-1.5 block text-[12.5px] font-medium tracking-wide text-muted uppercase;
+  }
+  .table {
+    @apply w-full border-collapse text-left text-[14px];
+  }
+  .table th {
+    @apply border-b border-line px-3 py-2.5 text-[12px] font-medium tracking-wide whitespace-nowrap text-muted uppercase;
+  }
+  .table td {
+    @apply border-b border-line/50 px-3 py-2.5 align-middle;
+  }
+  .table tbody tr {
+    @apply transition hover:bg-white/[0.03];
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+.fade-in {
+  animation: fade-in 0.15s ease-out;
+}
+.rise {
+  animation: rise 0.18s ease-out;
+}

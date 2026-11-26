@@ -1,0 +1,18 @@
+# Continuous backup of the SQLite database to Cloudflare R2 (S3 API).
+# Values come from the server's environment (see .env.example).
+dbs:
+  - path: ${DATABASE_PATH}
+    replicas:
+      - type: s3
+        endpoint: ${LITESTREAM_ENDPOINT}
+        bucket: ${LITESTREAM_BUCKET}
+        path: ludo.db
+        region: auto
+        force-path-style: true
+        access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+        secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
+        # Full snapshot every day, WAL history kept 30 days (point-in-time restore).
+        snapshot-interval: 24h
+        retention: 720h
+        # At most one upload every 5 s (~520k writes/month): stays inside R2's free 1M operations.
+        sync-interval: 5s

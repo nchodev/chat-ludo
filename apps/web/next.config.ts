@@ -11,9 +11,11 @@ const contentSecurityPolicy = [
   // Next.js inlines its bootstrap scripts.
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  // Link previews show images hosted by the shared site.
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' blob:",
   "font-src 'self' data:",
-  `connect-src ${connectSrc}`,
+  `connect-src ${connectSrc} blob:`,
   "worker-src 'self'",
   "manifest-src 'self'",
   "frame-ancestors 'none'",
@@ -26,7 +28,7 @@ const securityHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+  { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=()' },
   // The dev server needs eval and its own websocket for hot reload.
   ...(process.env.NODE_ENV === 'production' ? [{ key: 'Content-Security-Policy', value: contentSecurityPolicy }] : []),
 ];
@@ -36,6 +38,9 @@ const nextConfig: NextConfig = {
   // Lets phones on the local network load the dev server's scripts.
   allowedDevOrigins: ['192.168.*.*', '10.*.*.*'],
   poweredByHeader: false,
+  experimental: {
+    agentUpgrade: 'security',
+  },
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },

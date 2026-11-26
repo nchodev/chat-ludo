@@ -11,7 +11,6 @@ import {
   type GameState,
 } from '@ludo/engine';
 import { BASE_ORIGIN, HOME_COLUMN, TRACK, pawnCenter } from '@/lib/board';
-import { COLOR_LABEL } from '@/lib/labels';
 import { DEFAULT_BOARD_THEME, DEFAULT_PAWN_STYLE, type BoardTheme, type PawnStyle } from '@/lib/themes';
 import { PawnDefs, PawnShape } from './Pawn';
 
@@ -24,6 +23,8 @@ interface BoardProps {
   onPawnClick?: (pawn: number) => void;
   theme?: BoardTheme;
   pawnStyle?: PawnStyle;
+  /** Clockwise turn of the whole board in degrees (a multiple of 90); pawns and stars stay upright. */
+  rotation?: number;
 }
 
 function starPath(cx: number, cy: number, outer: number, inner: number): string {
@@ -98,6 +99,7 @@ function layoutPawns(pawns: GameState['pawns'], movable: Set<number>, movableCol
 export function Board({ state, pawns = state.pawns, movableColor = null, onPawnClick,
   theme = DEFAULT_BOARD_THEME,
   pawnStyle = DEFAULT_PAWN_STYLE,
+  rotation = 0,
 }: BoardProps) {
   const uid = useId().replace(/:/g, '');
   const ids = {
@@ -135,8 +137,8 @@ export function Board({ state, pawns = state.pawns, movableColor = null, onPawnC
         <PawnDefs palette={colors} gradientId={ids.pawn} glowId={ids.glow} />
         {COLORS.map((color) => (
           <linearGradient key={color} id={ids.base(color)} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor={colors[color].main} />
-            <stop offset="100%" stopColor={colors[color].dark} stopOpacity={0.85} />
+            <stop offset="0%" stopColor={colors[color].main} stopOpacity={0.88} />
+            <stop offset="100%" stopColor={colors[color].main} />
           </linearGradient>
         ))}
         <pattern id={ids.wood} width="15" height="1.6" patternUnits="userSpaceOnUse">
@@ -154,6 +156,8 @@ export function Board({ state, pawns = state.pawns, movableColor = null, onPawnC
       <rect x={-0.2} y={-0.2} width={15.4} height={15.4} rx={0.5} fill={theme.surface} />
       {theme.pattern === 'wood' && <rect x={-0.2} y={-0.2} width={15.4} height={15.4} fill={`url(#${ids.wood})`} />}
 
+      <g transform={rotation ? `rotate(${rotation} 7.5 7.5)` : undefined}>
+
       {COLORS.map((color) => {
         const [ox, oy] = BASE_ORIGIN[color];
         const active = inGame.has(color);
@@ -168,8 +172,9 @@ export function Board({ state, pawns = state.pawns, movableColor = null, onPawnC
               height={5.8}
               rx={0.35}
               fill={outline ? theme.surface : `url(#${ids.base(color)})`}
-              stroke={outline ? colors[color].main : 'none'}
-              strokeWidth={0.14}
+              stroke={outline ? colors[color].main : colors[color].dark}
+              strokeWidth={outline ? 0.14 : 0.08}
+              strokeOpacity={outline ? 1 : 0.55}
               filter={outline ? `url(#${ids.glow})` : undefined}
             />
             {theme.pattern === 'wax' && (
@@ -182,8 +187,9 @@ export function Board({ state, pawns = state.pawns, movableColor = null, onPawnC
               height={4.3}
               rx={0.7}
               fill={theme.baseInner}
-              stroke={isCurrent ? (outline ? colors[color].main : '#ffffff') : 'none'}
-              strokeWidth={0.12}
+              stroke={isCurrent ? (outline ? colors[color].main : '#ffffff') : colors[color].dark}
+              strokeWidth={isCurrent ? 0.12 : 0.05}
+              strokeOpacity={isCurrent ? 1 : 0.35}
               className={isCurrent ? 'base-glow' : undefined}
             />
             {BASE_SLOTS.map(([sx, sy]) => (
@@ -193,9 +199,9 @@ export function Board({ state, pawns = state.pawns, movableColor = null, onPawnC
                 cy={oy + sy}
                 r={0.58}
                 fill={colors[color].light}
-                stroke={outline ? colors[color].main : 'none'}
+                stroke={outline ? colors[color].main : colors[color].dark}
                 strokeWidth={0.05}
-                strokeOpacity={0.5}
+                strokeOpacity={outline ? 0.5 : 0.35}
               />
             ))}
           </g>
@@ -207,17 +213,22 @@ export function Board({ state, pawns = state.pawns, movableColor = null, onPawnC
         return (
           <g key={`t${i}`}>
             <rect
-              x={x + 0.04}
-              y={y + 0.04}
-              width={0.92}
-              height={0.92}
-              rx={0.14}
+              x={x + 0.05}
+              y={y + 0.05}
+              width={0.9}
+              height={0.9}
+              rx={0.12}
               fill={startColor ? colors[startColor].main : theme.cell}
-              stroke={theme.cellStroke}
-              strokeWidth={0.03}
+              stroke={startColor ? colors[startColor].dark : theme.cellStroke}
+              strokeWidth={0.06}
+              strokeOpacity={startColor ? 0.6 : 0.85}
             />
             {state.rules.safeSquares && STAR_SQUARES.includes(i) && (
-              <path d={starPath(x + 0.5, y + 0.5, 0.34, 0.14)} fill={theme.star} />
+              <path
+                d={starPath(x + 0.5, y + 0.5, 0.34, 0.14)}
+                fill={theme.star}
+                transform={rotation ? `rotate(${-rotation} ${x + 0.5} ${y + 0.5})` : undefined}
+              />
             )}
             {startColor && (
               <path
@@ -233,25 +244,33 @@ export function Board({ state, pawns = state.pawns, movableColor = null, onPawnC
 
       {COLORS.map((color) =>
         HOME_COLUMN[color].map(([x, y], i) => (
-          <rect
-            key={`h${color}${i}`}
-            x={x + 0.04}
-            y={y + 0.04}
-            width={0.92}
-            height={0.92}
-            rx={0.14}
-            fill={colors[color].main}
-            opacity={0.55 + i * 0.09}
-          />
+          <g key={`h${color}${i}`}>
+            <rect x={x + 0.05} y={y + 0.05} width={0.9} height={0.9} rx={0.12} fill={theme.cell} />
+            <rect
+              x={x + 0.05}
+              y={y + 0.05}
+              width={0.9}
+              height={0.9}
+              rx={0.12}
+              fill={colors[color].main}
+              fillOpacity={0.5 + i * 0.1}
+              stroke={colors[color].dark}
+              strokeWidth={0.06}
+              strokeOpacity={0.6}
+            />
+          </g>
         )),
       )}
 
-      <polygon points="6,6 6,9 7.5,7.5" fill={colors.red.main} />
-      <polygon points="6,6 9,6 7.5,7.5" fill={colors.green.main} />
-      <polygon points="9,6 9,9 7.5,7.5" fill={colors.yellow.main} />
-      <polygon points="6,9 9,9 7.5,7.5" fill={colors.blue.main} />
+      <g stroke={theme.surface} strokeWidth={0.08} strokeLinejoin="round">
+        <polygon points="6,6 6,9 7.5,7.5" fill={colors.red.main} />
+        <polygon points="6,6 9,6 7.5,7.5" fill={colors.green.main} />
+        <polygon points="9,6 9,9 7.5,7.5" fill={colors.yellow.main} />
+        <polygon points="6,9 9,9 7.5,7.5" fill={colors.blue.main} />
+      </g>
+      <rect x={6} y={6} width={3} height={3} fill="none" stroke={theme.cellStroke} strokeWidth={0.06} strokeOpacity={0.85} />
       <circle cx={7.5} cy={7.5} r={0.5} fill={theme.surface} opacity={0.9} />
-      <text x={7.5} y={7.72} fontSize={0.6} textAnchor="middle">
+      <text x={7.5} y={7.72} fontSize={0.6} textAnchor="middle" transform={rotation ? `rotate(${-rotation} 7.5 7.5)` : undefined}>
         🏠
       </text>
 
@@ -264,10 +283,10 @@ export function Board({ state, pawns = state.pawns, movableColor = null, onPawnC
             style={{ transform: `translate(${p.x}px, ${p.y}px)` }}
             onClick={p.movable ? () => onPawnClick?.(p.pawn) : undefined}
             role={p.movable ? 'button' : undefined}
-            aria-label={p.movable ? `Déplacer le pion ${COLOR_LABEL[p.color]} ${p.pawn + 1}` : undefined}
+            aria-label={p.movable ? `Déplacer le pion ${p.pawn + 1}` : undefined}
             cursor={p.movable ? 'pointer' : undefined}
           >
-            <g transform={`scale(${p.scale})`}>
+            <g transform={`rotate(${-rotation}) scale(${p.scale})`}>
               <ellipse cx={0} cy={0.24} rx={0.3} ry={0.12} fill="#000" opacity={neon ? 0.5 : 0.25} />
               <g className={p.movable ? 'pawn-bob' : undefined}>
                 {p.movable && (
@@ -316,6 +335,7 @@ export function Board({ state, pawns = state.pawns, movableColor = null, onPawnC
           />
         </g>
       ))}
+      </g>
     </svg>
   );
 }

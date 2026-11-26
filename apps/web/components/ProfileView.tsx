@@ -1,0 +1,189 @@
+'use client';
+
+import Link from 'next/link';
+import { useState, type ComponentType } from 'react';
+import { ACHIEVEMENTS, REFERRAL, levelInfo } from '@ludo/engine';
+import { CoinAmount, CoinIcon } from './Coins';
+import { DailyCard } from './DailyCard';
+import { Icon } from './Icons';
+import { LevelBar } from './LevelBar';
+import { ProfileQrSheet } from './ProfileQr';
+import { QrScanner } from './QrScanner';
+import { logout, useProfile } from '@/lib/profile';
+
+type IconComponent = ComponentType<{ size?: number; className?: string }>;
+
+/** The player's level, statistics, daily challenges and badges. */
+export function ProfileView() {
+  const { profile, session, rank } = useProfile();
+  const [qrOpen, setQrOpen] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const { level, current, needed } = levelInfo(profile.xp);
+  const s = profile.stats;
+  const winRate = s.games > 0 ? Math.round((s.wins / s.games) * 100) : 0;
+
+  const stats: { label: string; value: string | number; icon: IconComponent }[] = [
+    { label: 'Parties', value: s.games, icon: Icon.Dice },
+    { label: 'Victoires', value: s.wins, icon: Icon.Trophy },
+    { label: 'Taux de victoire', value: `${winRate} %`, icon: Icon.Star },
+    { label: 'Captures', value: s.captures, icon: Icon.Target },
+    { label: 'Pions rentrés', value: s.pawnsHome, icon: Icon.Home },
+    { label: 'Meilleure série', value: s.bestWinStreak, icon: Icon.Bolt },
+  ];
+
+  return (
+    <div className="flex flex-col gap-4">
+      <section className="card flex flex-col gap-3 p-4">
+        <div className="flex items-center gap-4">
+          <span className="relative grid size-16 shrink-0 place-items-center rounded-full bg-gradient-to-br from-fuchsia-400 to-indigo-600 text-3xl font-bold shadow-lg">
+            {session ? session.username[0].toUpperCase() : <Icon.Person size={34} />}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xl font-bold">{session?.username ?? 'Invité'}</p>
+            <p className="text-sm text-white/60">
+              Niveau {level}
+              {rank && ` · ${rank}ᵉ au classement`}
+            </p>
+          </div>
+        </div>
+        <div>
+          <LevelBar xp={profile.xp} />
+          <p className="mt-1 text-right text-xs text-white/50">
+            {current} / {needed} XP avant le niveau {level + 1}
+          </p>
+        </div>
+        {session ? (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setQrOpen(true)}
+                className="flex h-11 items-center justify-center gap-2 rounded-full bg-[#00a884] text-[14.5px] font-semibold text-[#0b141a] active:scale-[0.98]"
+              >
+                <Icon.QrCode size={19} />
+                Mon QR code
+              </button>
+              <button
+                type="button"
+                onClick={() => setScanning(true)}
+                className="flex h-11 items-center justify-center gap-2 rounded-full border border-[#2a3942] text-[14.5px] font-semibold text-[#00a884] active:bg-white/5"
+              >
+                <Icon.QrScan size={19} />
+                Scanner
+              </button>
+            </div>
+            <button type="button" onClick={() => void logout()} className="btn btn-ghost text-sm">
+              Se déconnecter
+            </button>
+          </>
+        ) : (
+          <div className="rounded-2xl bg-emerald-400/10 p-3 text-sm text-emerald-100">
+            Ta progression est enregistrée seulement sur cet appareil.{' '}
+            <Link href="/compte" className="font-bold underline">
+              Crée un compte
+            </Link>{' '}
+            pour la garder partout et apparaître au classement.
+          </div>
+        )}
+      </section>
+
+      <section className="card p-4">
+        <h2 className="mb-3 flex items-center gap-2 font-bold">
+          <Icon.Medal size={20} className="text-[#00a884]" />
+          Statistiques
+        </h2>
+        <div className="grid grid-cols-3 gap-2">
+          {stats.map(({ label, value, icon: StatIcon }) => (
+            <div key={label} className="flex flex-col items-center rounded-2xl bg-white/5 p-2.5 text-center">
+              <StatIcon size={20} className="text-[#8696a0]" />
+              <div className="mt-1 text-lg font-bold tabular-nums">{value}</div>
+              <div className="text-[11px] leading-tight text-white/50">{label}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <Link href="/portefeuille" className="flex items-center gap-4 rounded-[28px] bg-[#1f2c33] p-4 transition active:scale-[0.99]">
+        <span className="grid size-11 shrink-0 place-items-center rounded-full bg-amber-500/15">
+          <CoinIcon size={24} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[16px] font-medium">Portefeuille</span>
+          <span className="flex items-center gap-1.5 text-[13px] text-[#8696a0]">
+            <CoinAmount value={profile.coins} size={13} /> · historique des gains, mises et achats
+          </span>
+        </span>
+        <Icon.ChevronRight className="shrink-0 text-[#8696a0]" />
+      </Link>
+
+      <Link href="/parrainage" className="flex items-center gap-4 rounded-[28px] bg-[#1f2c33] p-4 transition active:scale-[0.99]">
+        <span className="grid size-11 shrink-0 place-items-center rounded-full bg-[#00a884]/15 text-[#00a884]">
+          <Icon.PersonAdd size={24} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[16px] font-medium">Inviter des amis</span>
+          <span className="flex items-center gap-1.5 text-[13px] text-[#8696a0]">
+            <CoinAmount value={REFERRAL.referrerCoins} size={13} /> par ami qui joue {REFERRAL.gamesNeeded} parties
+          </span>
+        </span>
+        <Icon.ChevronRight className="shrink-0 text-[#8696a0]" />
+      </Link>
+
+      <DailyCard />
+
+      <section className="card p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 font-bold">
+            <Icon.Trophy size={20} className="text-[#00a884]" />
+            Badges
+          </h2>
+          <span className="text-xs text-white/50">
+            {profile.achievements.length} / {ACHIEVEMENTS.length}
+          </span>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {ACHIEVEMENTS.map((a) => {
+            const unlocked = profile.achievements.includes(a.id);
+            return (
+              <div
+                key={a.id}
+                className={`flex flex-col items-center gap-1 rounded-2xl p-2.5 text-center ${
+                  unlocked ? 'bg-amber-400/15 ring-1 ring-amber-300/40' : 'bg-white/5 opacity-60'
+                }`}
+                title={a.description}
+              >
+                {unlocked ? (
+                  <span className="text-3xl">{a.icon}</span>
+                ) : (
+                  <span className="grid size-9 place-items-center text-[#8696a0]">
+                    <Icon.Lock size={24} />
+                  </span>
+                )}
+                <span className="text-xs leading-tight font-semibold">{a.name}</span>
+                <span className="text-[10px] leading-tight text-white/50">{a.description}</span>
+                {!unlocked && <CoinAmount value={a.coins} size={12} className="text-[10px] text-amber-200" />}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <Link href="/classement" className="btn btn-light flex items-center justify-center gap-2">
+        <Icon.Trophy size={20} />
+        Voir le classement
+      </Link>
+
+      <nav className="flex flex-wrap justify-center gap-x-5 gap-y-1 pt-1 text-[12.5px] text-[#8696a0]">
+        <Link href="/conditions" className="underline-offset-2 hover:underline">
+          Conditions d’utilisation
+        </Link>
+        <Link href="/confidentialite" className="underline-offset-2 hover:underline">
+          Confidentialité
+        </Link>
+      </nav>
+
+      {session && <ProfileQrSheet open={qrOpen} username={session.username} onClose={() => setQrOpen(false)} />}
+      {scanning && <QrScanner onClose={() => setScanning(false)} />}
+    </div>
+  );
+}

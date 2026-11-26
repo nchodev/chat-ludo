@@ -38,13 +38,15 @@ export function PawnShape({ color, shades: c, pawnStyle, theme, gradientId, glow
       case 'glossy':
         return (
           <>
+            <circle r={0.41} fill={c.dark} opacity={0.85} />
             <circle r={0.36} fill={fill} stroke="#ffffff" strokeWidth={0.07} />
-            <circle r={0.16} fill="#ffffff" opacity={0.35} />
+            <circle r={0.16} fill="#ffffff" opacity={0.3} />
           </>
         );
       case 'flat':
         return (
           <>
+            <circle r={0.41} fill={c.dark} opacity={0.7} />
             <circle r={0.36} fill={c.main} stroke="#ffffff" strokeWidth={0.08} />
             <circle r={0.15} fill={c.dark} opacity={0.35} />
           </>
@@ -172,8 +174,8 @@ export function PawnDefs({
     <>
       {(Object.keys(palette) as Color[]).map((color) => (
         <radialGradient key={color} id={gradientId(color)} cx="35%" cy="30%" r="75%">
-          <stop offset="0%" stopColor="#ffffff" stopOpacity={0.9} />
-          <stop offset="28%" stopColor={palette[color].main} />
+          <stop offset="0%" stopColor="#ffffff" stopOpacity={0.75} />
+          <stop offset="30%" stopColor={palette[color].main} />
           <stop offset="100%" stopColor={palette[color].dark} />
         </radialGradient>
       ))}

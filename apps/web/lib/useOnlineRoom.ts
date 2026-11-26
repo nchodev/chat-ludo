@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { BotLevel, Color, ReactionMessage, RoomView, Rules } from '@ludo/engine';
 import { getSessionToken } from './profile';
-import { getRoomToken, getSocket, storeRoomToken } from './socket';
+import { NOT_CONNECTED } from './connectivity';
+import { getRoomToken, getSocket, storeRoomToken, type LudoClientSocket } from './socket';
 
 export function useOnlineRoom(code: string, name: string | null) {
   const [room, setRoom] = useState<RoomView | null>(null);
@@ -29,14 +30,20 @@ export function useOnlineRoom(code: string, name: string | null) {
       if (view.code === code) setRoom(view);
     };
     const onDisconnect = () => setConnected(false);
+    const onClosed = (reason: string) => {
+      setRoom(null);
+      setJoinError(reason);
+    };
 
     socket.on('room:state', onState);
+    socket.on('room:closed', onClosed);
     socket.on('connect', join);
     socket.on('disconnect', onDisconnect);
     if (socket.connected) join();
 
     return () => {
       socket.off('room:state', onState);
+      socket.off('room:closed', onClosed);
       socket.off('connect', join);
       socket.off('disconnect', onDisconnect);
     };
@@ -52,18 +59,25 @@ export function useOnlineRoom(code: string, name: string | null) {
     const onAck = (res: { ok: boolean; error?: string }) => {
       if (!res.ok) setToast(res.error ?? 'Erreur');
     };
+    /** Not queued while disconnected: a move sent late would be played out of context. */
+    const send = (emit: (socket: LudoClientSocket) => void) => {
+      const socket = getSocket();
+      if (socket.connected) emit(socket);
+      else setToast(NOT_CONNECTED);
+    };
     return {
-      roll: () => getSocket().emit('game:roll', onAck),
-      move: (pawn: number) => getSocket().emit('game:move', { pawn }, onAck),
-      takeSeat: (color: Color) => getSocket().emit('room:takeSeat', { color }, onAck),
+      roll: () => send((s) => s.emit('game:roll', onAck)),
+      move: (pawn: number) => send((s) => s.emit('game:move', { pawn }, onAck)),
+      takeSeat: (color: Color) => send((s) => s.emit('room:takeSeat', { color }, onAck)),
       setSeat: (color: Color, kind: 'empty' | 'bot', botLevel?: BotLevel) =>
-        getSocket().emit('room:setSeat', { color, kind, botLevel }, onAck),
-      setRules: (rules: Rules) => getSocket().emit('room:setRules', { rules }, onAck),
-      start: () => getSocket().emit('room:start', onAck),
-      backToLobby: () => getSocket().emit('room:backToLobby', onAck),
-      rematch: () => getSocket().emit('room:rematch', onAck),
+        send((s) => s.emit('room:setSeat', { color, kind, botLevel }, onAck)),
+      setRules: (rules: Rules) => send((s) => s.emit('room:setRules', { rules }, onAck)),
+      start: () => send((s) => s.emit('room:start', onAck)),
+      setWager: (table: string | null) => send((s) => s.emit('room:setWager', { table }, onAck)),
+      backToLobby: () => send((s) => s.emit('room:backToLobby', onAck)),
+      rematch: () => send((s) => s.emit('room:rematch', onAck)),
       leave: () => getSocket().emit('room:leave'),
-      react: (reaction: string) => getSocket().emit('game:react', { reaction }),
+      react: (reaction: string) => send((s) => s.emit('game:react', { reaction })),
     };
   }, []);
 

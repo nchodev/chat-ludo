@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import {
   LOGIN_REWARDS,
   dailyChallenges,
@@ -8,113 +8,313 @@ import {
   loginBonusAvailable,
   nextLoginStreak,
   utcDay,
+  weekOf,
+  weeklyQuests,
+  weeklyState,
 } from '@ludo/engine';
 import { CoinAmount, CoinIcon } from './Coins';
+import { Icon } from './Icons';
+import { Sheet } from './Sheet';
 import { claimDailyBonus, useProfile } from '@/lib/profile';
 import { sfx } from '@/lib/sound';
 
-function untilMidnightUtc(): string {
+type IconComponent = ComponentType<{ size?: number; className?: string }>;
+
+export const CHALLENGE_ICON: Record<string, IconComponent> = {
+  play3: Icon.Dice,
+  win2: Icon.Trophy,
+  capture5: Icon.Target,
+  home8: Icon.Home,
+  hard1: Icon.Robot,
+  online1: Icon.Groups,
+  flawless1: Icon.Shield,
+};
+
+export const QUEST_ICON: Record<string, IconComponent> = {
+  w_play15: Icon.Dice,
+  w_win7: Icon.Trophy,
+  w_online3: Icon.Groups,
+  w_dames5: Icon.Crown,
+  w_dameswin2: Icon.Medal,
+  w_ludo10: Icon.Dice,
+  w_capture30: Icon.Target,
+  w_home20: Icon.Home,
+};
+
+export function untilMidnightUtc(): string {
   const now = new Date();
   const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
   const minutes = Math.ceil((next - now.getTime()) / 60_000);
   return minutes >= 60 ? `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')}` : `${minutes} min`;
 }
 
-/** Daily login bonus and the day's three challenges. */
-export function DailyCard() {
+function untilNextWeek(): string {
+  const now = new Date();
+  const daysLeft = 7 - ((now.getUTCDay() + 6) % 7);
+  const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysLeft);
+  const hours = Math.ceil((next - now.getTime()) / 3_600_000);
+  return hours >= 24 ? `${Math.floor(hours / 24)} j ${hours % 24} h` : `${hours} h`;
+}
+
+/** Where the player is in the 7-day login cycle, and how to claim today's bonus. */
+function useLoginBonus() {
   const { profile, ready } = useProfile();
   const [day, setDay] = useState('');
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-
+  const [claimed, setClaimed] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => setDay(utcDay()), []);
-  if (!ready || !day) return <section className="card h-48 animate-pulse p-4" />;
 
-  const available = loginBonusAvailable(profile, day);
+  const available = !!day && loginBonusAvailable(profile, day);
   const streak = available ? nextLoginStreak(profile, day) : profile.login.streak;
-  const cycleDay = ((streak - 1) % LOGIN_REWARDS.length) + 1;
-  const daily = dailyState(profile, day);
+  const cycleDay = ((Math.max(1, streak) - 1) % LOGIN_REWARDS.length) + 1;
 
   const claim = async () => {
     setBusy(true);
-    setMessage(null);
+    setError(null);
     try {
       const { coins } = await claimDailyBonus();
       sfx.finish();
-      setMessage(`+${coins} pièces récupérées !`);
+      setClaimed(coins);
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Impossible pour le moment.');
+      setError(err instanceof Error ? err.message : 'Impossible pour le moment.');
     } finally {
       setBusy(false);
     }
   };
 
+  return { ready: ready && !!day, day, profile, available, streak, cycleDay, busy, claimed, error, claim };
+}
+
+function StreakCalendar({ cycleDay, available }: { cycleDay: number; available: boolean }) {
   return (
-    <section className="card flex flex-col gap-4 p-4">
+    <ol className="grid grid-cols-7 gap-1.5">
+      {LOGIN_REWARDS.map((coins, i) => {
+        const n = i + 1;
+        const done = n < cycleDay || (!available && n === cycleDay);
+        const today = n === cycleDay && available;
+        const last = n === LOGIN_REWARDS.length;
+        return (
+          <li
+            key={n}
+            className={`flex flex-col items-center gap-1 rounded-2xl py-2 text-[11px] transition ${
+              today
+                ? 'bg-[#00a884] text-[#0b141a] shadow-lg shadow-[#00a884]/20'
+                : done
+                  ? 'bg-[#00a884]/15 text-[#00a884]'
+                  : 'bg-[#0b141a]/60 text-[#8696a0]'
+            }`}
+          >
+            <span className="font-semibold">J{n}</span>
+            <span className="grid size-6 place-items-center">
+              {done ? <Icon.Check size={20} /> : last ? <Icon.Gift size={20} className={today ? '' : 'text-[#ffbc38]'} /> : <CoinIcon size={18} />}
+            </span>
+            <span className="font-bold tabular-nums">{coins}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** Daily login bonus, the day's challenges and the week's quests. */
+export function DailyCard() {
+  const bonus = useLoginBonus();
+  if (!bonus.ready) return <section className="h-64 animate-pulse rounded-[28px] bg-[#1f2c33]" />;
+  const { profile, day, available, streak, cycleDay } = bonus;
+  const daily = dailyState(profile, day);
+  const week = weekOf(day);
+  const weekly = weeklyState(profile, week);
+  const series = available ? streak - 1 : streak;
+
+  return (
+    <section className="flex flex-col gap-5 rounded-[28px] bg-[#1f2c33] p-4">
       <div>
-        <div className="flex items-center justify-between">
-          <h2 className="font-bold">🎁 Bonus du jour</h2>
-          <span className="text-xs text-white/50">Série : {available ? streak - 1 : streak} j</span>
+        <div className="mb-3 flex items-center gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[#ffbc38]/15 text-[#ffbc38]">
+            <Icon.Gift size={22} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[16px] font-medium text-[#e9edef]">Bonus du jour</span>
+            <span className="block text-[13px] text-[#8696a0]">Connecte-toi chaque jour, le 7e jour rapporte le plus</span>
+          </span>
+          <span className="flex shrink-0 items-center gap-1 rounded-full bg-[#ff7a45]/15 px-2.5 py-1 text-[12.5px] font-semibold text-[#ff9a6b]">
+            <Icon.Flame size={15} />
+            {series} j
+          </span>
         </div>
-        <div className="mt-2 grid grid-cols-7 gap-1">
-          {LOGIN_REWARDS.map((coins, i) => {
-            const n = i + 1;
-            const claimed = n < cycleDay || (!available && n === cycleDay);
-            const today = n === cycleDay && available;
-            return (
-              <div
-                key={n}
-                className={`flex flex-col items-center gap-0.5 rounded-xl py-1.5 text-[10px] ${
-                  today ? 'bg-amber-400 text-amber-950 ring-2 ring-amber-200' : claimed ? 'bg-emerald-500/25 text-emerald-100' : 'bg-white/5 text-white/60'
-                }`}
-              >
-                <span className="font-semibold">J{n}</span>
-                {claimed ? <span className="text-sm leading-[18px]">✓</span> : <CoinIcon size={18} />}
-                <span className="font-bold">{coins}</span>
-              </div>
-            );
-          })}
-        </div>
+        <StreakCalendar cycleDay={cycleDay} available={available} />
         {available ? (
-          <button type="button" onClick={claim} disabled={busy} className="btn btn-primary mt-3 w-full">
+          <button
+            type="button"
+            onClick={bonus.claim}
+            disabled={bonus.busy}
+            className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] transition active:scale-[0.98] disabled:opacity-60"
+          >
             Récupérer <CoinAmount value={LOGIN_REWARDS[cycleDay - 1]} size={18} />
           </button>
         ) : (
-          <p className="mt-2 text-center text-xs text-white/50">Reviens demain pour continuer ta série !</p>
+          <p className="mt-3 text-center text-[13px] text-[#8696a0]">
+            {bonus.claimed ? (
+              <span className="font-semibold text-[#25d366]">+{bonus.claimed} pièces récupérées</span>
+            ) : (
+              'Reviens demain pour continuer ta série.'
+            )}
+          </p>
         )}
-        {message && <p className="pop-in mt-2 text-center text-sm font-semibold text-amber-200">{message}</p>}
+        {bonus.error && <p className="mt-2 text-center text-[13px] text-[#f15c6d]">{bonus.error}</p>}
       </div>
 
       <div>
-        <div className="flex items-center justify-between">
-          <h2 className="font-bold">🎯 Défis du jour</h2>
-          <span className="text-xs text-white/50">Nouveaux dans {untilMidnightUtc()}</span>
+        <div className="mb-2 flex items-center justify-between px-1">
+          <h2 className="text-[13px] font-medium text-[#00a884]">Défis du jour</h2>
+          <span className="flex items-center gap-1 text-[12px] text-[#8696a0]">
+            <Icon.Timer size={14} />
+            Nouveaux dans {untilMidnightUtc()}
+          </span>
         </div>
-        <ul className="mt-2 flex flex-col gap-2">
-          {dailyChallenges(day).map((c) => {
-            const done = daily.done.includes(c.id);
-            const progress = Math.min(c.goal, daily.progress[c.id] ?? 0);
-            return (
-              <li key={c.id} className={`rounded-2xl p-2.5 ${done ? 'bg-emerald-500/15' : 'bg-white/5'}`}>
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="text-lg">{done ? '✅' : c.icon}</span>
-                  <span className={`min-w-0 flex-1 font-medium ${done ? 'text-white/60 line-through' : ''}`}>{c.label}</span>
-                  <span className="text-xs text-white/60 tabular-nums">
-                    {progress}/{c.goal}
-                  </span>
-                  <CoinAmount value={c.coins} size={14} className="text-xs text-amber-200" />
-                </div>
-                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className={`h-full rounded-full ${done ? 'bg-emerald-400' : 'bg-amber-400'}`}
-                    style={{ width: `${(progress / c.goal) * 100}%` }}
-                  />
-                </div>
-              </li>
-            );
-          })}
+        <ul className="flex flex-col gap-2">
+          {dailyChallenges(day).map((c) => (
+            <ChallengeRow
+              key={c.id}
+              icon={CHALLENGE_ICON[c.id] ?? Icon.Target}
+              label={c.label}
+              goal={c.goal}
+              progress={daily.progress[c.id] ?? 0}
+              done={daily.done.includes(c.id)}
+              coins={c.coins}
+            />
+          ))}
+        </ul>
+      </div>
+
+      <div>
+        <div className="mb-2 flex items-center justify-between px-1">
+          <h2 className="text-[13px] font-medium text-[#00a884]">Défis de la semaine</h2>
+          <span className="flex items-center gap-1 text-[12px] text-[#8696a0]">
+            <Icon.Calendar size={14} />
+            Nouveaux dans {untilNextWeek()}
+          </span>
+        </div>
+        <ul className="flex flex-col gap-2">
+          {weeklyQuests(week).map((q) => (
+            <ChallengeRow
+              key={q.id}
+              icon={QUEST_ICON[q.id] ?? Icon.Target}
+              label={q.label}
+              goal={q.goal}
+              progress={weekly.progress[q.id] ?? 0}
+              done={weekly.done.includes(q.id)}
+              coins={q.coins}
+            />
+          ))}
         </ul>
       </div>
     </section>
+  );
+}
+
+export function ChallengeRow({
+  icon: RowIcon,
+  label,
+  goal,
+  progress,
+  done,
+  coins,
+}: {
+  icon: IconComponent;
+  label: string;
+  goal: number;
+  progress: number;
+  done: boolean;
+  coins: number;
+}) {
+  const value = Math.min(goal, progress);
+  return (
+    <li className={`flex items-center gap-3 rounded-2xl p-3 ${done ? 'bg-[#00a884]/10' : 'bg-[#0b141a]/50'}`}>
+      <span
+        className={`grid size-9 shrink-0 place-items-center rounded-full ${done ? 'bg-[#00a884] text-[#0b141a]' : 'bg-[#2a3942] text-[#aebac1]'}`}
+      >
+        {done ? <Icon.Check size={20} /> : <RowIcon size={19} />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-2">
+          <span className={`min-w-0 flex-1 truncate text-[14.5px] ${done ? 'text-[#8696a0] line-through' : 'text-[#e9edef]'}`}>{label}</span>
+          <CoinAmount value={coins} size={13} className="shrink-0 text-[12.5px] text-[#ffd279]" />
+        </span>
+        <span className="mt-1.5 flex items-center gap-2">
+          <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
+            <span
+              className={`block h-full rounded-full transition-[width] ${done ? 'bg-[#00a884]' : 'bg-[#ffbc38]'}`}
+              style={{ width: `${(value / goal) * 100}%` }}
+            />
+          </span>
+          <span className="shrink-0 text-[11.5px] text-[#8696a0] tabular-nums">
+            {value}/{goal}
+          </span>
+        </span>
+      </span>
+    </li>
+  );
+}
+
+const DISMISSED_KEY = 'luchat:daily-dismissed';
+
+/** Opens once a day on the home screen while today's login bonus is waiting. */
+export function DailyBonusPrompt() {
+  const bonus = useLoginBonus();
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!bonus.ready || !bonus.available) return;
+    if (localStorage.getItem(DISMISSED_KEY) === bonus.day) return;
+    const timer = setTimeout(() => setOpen(true), 700);
+    return () => clearTimeout(timer);
+  }, [bonus.ready, bonus.available, bonus.day]);
+
+  const close = () => {
+    localStorage.setItem(DISMISSED_KEY, bonus.day);
+    setOpen(false);
+  };
+
+  const coins = LOGIN_REWARDS[bonus.cycleDay - 1];
+  return (
+    <Sheet open={open} title="Bonus du jour" onClose={close}>
+      <div className="flex flex-col items-center gap-4 pb-1 text-center">
+        <span className="pop-in grid size-20 place-items-center rounded-full bg-gradient-to-br from-[#ffbc38] to-[#ff7a45] text-[#0b141a] shadow-xl shadow-[#ffbc38]/20">
+          {bonus.claimed ? <Icon.Check size={44} /> : <Icon.Gift size={42} />}
+        </span>
+        {bonus.claimed ? (
+          <>
+            <div>
+              <p className="text-[20px] font-semibold">+{bonus.claimed} pièces</p>
+              <p className="mt-1 text-[14px] text-[#8696a0]">Série de {bonus.profile.login.streak} jour{bonus.profile.login.streak > 1 ? 's' : ''}. À demain !</p>
+            </div>
+            <button type="button" onClick={close} className="h-12 w-full rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a]">
+              Super
+            </button>
+          </>
+        ) : (
+          <>
+            <div>
+              <p className="text-[20px] font-semibold">Jour {bonus.cycleDay} de ta série</p>
+              <p className="mt-1 text-[14px] text-[#8696a0]">Reviens chaque jour : le 7e jour rapporte {LOGIN_REWARDS[LOGIN_REWARDS.length - 1]} pièces.</p>
+            </div>
+            <div className="w-full">
+              <StreakCalendar cycleDay={bonus.cycleDay} available={bonus.available} />
+            </div>
+            <button
+              type="button"
+              onClick={bonus.claim}
+              disabled={bonus.busy}
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] transition active:scale-[0.98] disabled:opacity-60"
+            >
+              Récupérer <CoinAmount value={coins} size={18} />
+            </button>
+            {bonus.error && <p className="text-[13px] text-[#f15c6d]">{bonus.error}</p>}
+          </>
+        )}
+      </div>
+    </Sheet>
   );
 }

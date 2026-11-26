@@ -1,0 +1,26 @@
+# HTTPS front door: certificates are issued and renewed automatically (Let's Encrypt).
+# Domains come from .env (WEB_DOMAIN, API_DOMAIN, ADMIN_DOMAIN).
+{
+	email {$ACME_EMAIL}
+}
+
+{$WEB_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy web:3000
+}
+
+www.{$WEB_DOMAIN} {
+	redir https://{$WEB_DOMAIN}{uri} permanent
+}
+
+{$API_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy server:4000
+}
+
+{$ADMIN_DOMAIN} {
+	@outside not remote_ip {$ADMIN_ALLOWED_IPS}
+	respond @outside 403
+	encode zstd gzip
+	reverse_proxy admin:3001
+}

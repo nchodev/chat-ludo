@@ -80,9 +80,10 @@ interface DiceProps {
   diceStyle?: DiceStyle;
   canRoll: boolean;
   onRoll: () => void;
+  size?: number;
 }
 
-export function Dice({ value, rollId, shades, diceStyle, canRoll, onRoll }: DiceProps) {
+export function Dice({ value, rollId, shades, diceStyle, canRoll, onRoll, size }: DiceProps) {
   const [shown, setShown] = useState(value ?? 6);
   const [rolling, setRolling] = useState(false);
   const lastRollId = useRef(rollId);
@@ -115,7 +116,7 @@ export function Dice({ value, rollId, shades, diceStyle, canRoll, onRoll }: Dice
       aria-label={canRoll ? 'Lancer le dé' : `Dé : ${shown}`}
       className={`shrink-0 rounded-[22px] ${canRoll ? 'dice-invite cursor-pointer' : ''} ${rolling ? 'dice-rolling' : ''}`}
     >
-      <DiceFace value={shown} shades={shades} diceStyle={diceStyle} highlighted={canRoll} />
+      <DiceFace value={shown} shades={shades} diceStyle={diceStyle} highlighted={canRoll} size={size} />
     </button>
   );
 }

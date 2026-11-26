@@ -1,9 +1,10 @@
 # Build from the repository root: docker build -f apps/web/Dockerfile .
-FROM node:23-slim AS build
+FROM node:24-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/engine/package.json packages/engine/
 COPY apps/web/package.json apps/web/
+COPY apps/admin/package.json apps/admin/
 COPY apps/server/package.json apps/server/
 RUN npm ci
 COPY packages/engine packages/engine
@@ -13,7 +14,7 @@ ARG NEXT_PUBLIC_SERVER_URL
 ENV NEXT_PUBLIC_SERVER_URL=$NEXT_PUBLIC_SERVER_URL
 RUN npm run build -w @ludo/web
 
-FROM node:23-slim
+FROM node:24-slim
 WORKDIR /app
 ARG NEXT_PUBLIC_SERVER_URL
 ENV NODE_ENV=production \

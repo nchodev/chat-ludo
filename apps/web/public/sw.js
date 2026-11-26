@@ -1,6 +1,6 @@
 // Keeps the app shell available offline: local games and the tutorial work without a network.
-const CACHE = 'ludo-v1';
-const PRECACHE = ['/', '/local', '/tutoriel', '/icon.svg', '/icon-192.png'];
+const CACHE = 'luchat-v3';
+const PRECACHE = ['/', '/ludo', '/local', '/tutoriel', '/dames', '/awale', '/icon.svg', '/icon-192.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(PRECACHE)).then(() => self.skipWaiting()));
@@ -12,6 +12,42 @@ self.addEventListener('activate', (event) => {
       .keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
+  );
+});
+
+// Chat messages received while the app is closed.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { body: event.data ? event.data.text() : '' };
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'LuChat', {
+      body: data.body || 'Nouveau message',
+      tag: data.tag,
+      renotify: true,
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      data: { url: data.url || '/' },
+    }),
+  );
+});
+
+// Opens the conversation, reusing an open window of the app when there is one.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = new URL((event.notification.data && event.notification.data.url) || '/', self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
+      const open = windows.find((w) => new URL(w.url).origin === self.location.origin);
+      if (open) {
+        open.postMessage({ type: 'open-url', url });
+        return open.focus();
+      }
+      return self.clients.openWindow(url);
+    }),
   );
 });
 

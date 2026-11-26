@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
   DEFAULT_RULES,
@@ -9,18 +9,29 @@ import {
   botReaction,
   eventKey,
   sanitizeRules,
+  stakeTable,
   type BotLevel,
   type Color,
+  type Rules,
 } from '@ludo/engine';
-import { AppearanceCard } from '@/components/AppearancePicker';
+import { AppearancePicker } from '@/components/AppearancePicker';
 import { GameView } from '@/components/GameView';
 import { Avatar } from '@/components/PlayerPanel';
-import { RulesCard } from '@/components/RulesCard';
+import { Icon } from '@/components/Icons';
+import { BOT_LEVEL_HINT, IconButton, ListRow, PRESET_ICON, RowIcon, RulesEditor, SectionTitle } from '@/components/MobileList';
 import { Sheet } from '@/components/Sheet';
 import { COLOR_DARK, COLOR_HEX } from '@/lib/board';
-import { BOT_LEVEL_LABEL, COLOR_LABEL } from '@/lib/labels';
+import { useAppearance } from '@/lib/appearance';
+import { BOT_LEVEL_LABEL, COLOR_LABEL, matchPreset, rulesSummary } from '@/lib/labels';
 import { useReactionBubbles } from '@/lib/reactions';
 import { activeSeats, useLocalGame, type LocalSeat, type LocalSetup } from '@/lib/useLocalGame';
+import { BackButton } from '@/components/BackButton';
+import { StakePicker } from '@/components/StakePicker';
+import { getSessionToken, useProfile } from '@/lib/profile';
+import { getSocket, storeRoomToken } from '@/lib/socket';
+
+/** Verified account of each seat, for a staked game. */
+type Accounts = Partial<Record<Color, string>>;
 
 const STORAGE_KEY = 'ludo:localSetup';
 
@@ -37,9 +48,16 @@ const DEFAULT_SETUP: LocalSetup = {
   rules: DEFAULT_RULES,
 };
 
-function setupError(setup: LocalSetup): string | null {
+function setupError(setup: LocalSetup, wager: string | null, accounts: Accounts, me: string | null): string | null {
   const active = activeSeats(setup);
   if (active.length < 2) return 'Ajoute au moins 2 joueurs.';
+  if (wager) {
+    if (!me) return 'Connecte-toi pour jouer avec mise.';
+    if (active.some((s) => s.kind === 'bot')) return 'Pas d’ordinateur dans une partie avec mise : retire-les.';
+    const missing = active.filter((s) => !accounts[s.color]);
+    if (missing.length) return `Vérifie le compte de chaque joueur (${missing.map((s) => COLOR_LABEL[s.color].toLowerCase()).join(', ')}).`;
+    if (!active.some((s) => accounts[s.color] === me)) return 'Tu dois faire partie des joueurs (« C’est moi »).';
+  }
   if (setup.rules.teams && active.length !== 4) return 'Le mode équipes nécessite 4 joueurs.';
   if (active.length === 2 && !areDiagonal(active[0].color, active[1].color)) {
     return 'À deux, les camps doivent être en diagonale : choisis un duel ci-dessus.';
@@ -47,25 +65,42 @@ function setupError(setup: LocalSetup): string | null {
   return null;
 }
 
-/** Moves the two active players onto a diagonal pair, keeping a player in place when possible. */
-function applyDuelPair(setup: LocalSetup, pair: [Color, Color]): LocalSetup {
+/**
+ * Moves the two active players onto a diagonal pair, keeping a player in place when possible.
+ * Returns the new setup and, for each colour of the pair, the colour its player came from.
+ */
+function applyDuelPair(setup: LocalSetup, pair: [Color, Color]): { setup: LocalSetup; from: Map<Color, Color> } {
   const active = activeSeats(setup);
   const assigned = new Map<Color, LocalSeat>();
   for (const s of active) if (pair.includes(s.color)) assigned.set(s.color, s);
   const rest = active.filter((s) => !pair.includes(s.color));
   for (const c of pair) if (!assigned.has(c) && rest.length) assigned.set(c, rest.shift()!);
   return {
-    ...setup,
-    seats: setup.seats.map((seat) => {
-      const src = assigned.get(seat.color);
-      return src ? { ...seat, kind: src.kind, name: src.name, botLevel: src.botLevel } : { ...seat, kind: 'none' };
-    }),
+    setup: {
+      ...setup,
+      seats: setup.seats.map((seat) => {
+        const src = assigned.get(seat.color);
+        return src ? { ...seat, kind: src.kind, name: src.name, botLevel: src.botLevel } : { ...seat, kind: 'none' };
+      }),
+    },
+    from: new Map([...assigned].map(([to, src]) => [to, src.color])),
   };
 }
 
 export default function LocalPage() {
   const [setup, setSetup] = useState<LocalSetup>(DEFAULT_SETUP);
   const [gameKey, setGameKey] = useState<number | null>(null);
+  const [editColor, setEditColor] = useState<Color | null>(null);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [lookOpen, setLookOpen] = useState(false);
+  const [wager, setWager] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<Accounts>({});
+  const [launching, setLaunching] = useState(false);
+  const [launchError, setLaunchError] = useState<string | null>(null);
+  const { board, dice, pawn } = useAppearance();
+  const { session } = useProfile();
+  const me = session?.username ?? null;
+  const router = useRouter();
 
   useEffect(() => {
     try {
@@ -76,8 +111,37 @@ export default function LocalPage() {
     }
   }, []);
 
-  const updateSeat = (color: Color, patch: Partial<LocalSeat>) =>
+  const updateSeat = (color: Color, patch: Partial<LocalSeat>) => {
     setSetup((s) => ({ ...s, seats: s.seats.map((seat) => (seat.color === color ? { ...seat, ...patch } : seat)) }));
+    if (patch.kind && patch.kind !== 'human') setAccounts((a) => ({ ...a, [color]: undefined }));
+  };
+
+  const setAccount = (color: Color, username: string | undefined) => {
+    setAccounts((a) => ({ ...a, [color]: username }));
+    if (username) updateSeat(color, { name: username });
+  };
+
+  const pickDuel = (pair: [Color, Color]) => {
+    const { setup: next, from } = applyDuelPair(setup, pair);
+    setSetup(next);
+    setAccounts((a) => Object.fromEntries([...from].map(([to, src]) => [to, a[src]])) as Accounts);
+  };
+
+  const startStaked = () => {
+    const seats = activeSeats(setup).map((s) => ({ color: s.color, username: accounts[s.color]! }));
+    setLaunching(true);
+    setLaunchError(null);
+    getSocket()
+      .timeout(10_000)
+      .emit('local:create', { auth: getSessionToken(), wager: wager!, rules: setup.rules, seats }, (err, res) => {
+        setLaunching(false);
+        if (err) return setLaunchError('Impossible de joindre le serveur de jeu.');
+        if (!res.ok) return setLaunchError(res.error);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(setup));
+        storeRoomToken(res.code, res.token);
+        router.push(`/online/${res.code}`);
+      });
+  };
 
   const start = () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(setup));
@@ -95,43 +159,369 @@ export default function LocalPage() {
     return <LocalGame key={gameKey} setup={setup} onQuit={() => setGameKey(null)} />;
   }
 
-  const error = setupError(setup);
+  const error = setupError(setup, wager, accounts, me);
+  const table = stakeTable(wager);
   const count = activeSeats(setup).length;
+  const editing = editColor ? setup.seats.find((s) => s.color === editColor)! : null;
+  const preset = matchPreset(setup.rules);
+  const PresetIcon = (preset && PRESET_ICON[preset.id]) || Icon.Tune;
+  const summary = rulesSummary(setup.rules);
+  const setRules = (rules: Rules) => setSetup((s) => ({ ...s, rules }));
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-4 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-32">
-      <header className="flex items-center gap-3">
-        <Link href="/" className="icon-btn" aria-label="Menu">
-          ←
-        </Link>
-        <div>
-          <h1 className="text-xl font-bold leading-tight">Nouvelle partie</h1>
-          <p className="text-sm text-white/60">Sur cet écran · {count} joueur{count > 1 ? 's' : ''}</p>
+    <div className="min-h-dvh bg-[#0b141a] text-[#e9edef]">
+      <header className="sticky top-0 z-10 bg-[#1f2c33] pt-[env(safe-area-inset-top)] shadow-md">
+        <div className="mx-auto flex h-16 max-w-lg items-center gap-1 px-1">
+          <BackButton href="/ludo" label="Retour à Ludo" text="Ludo" />
+          <div className="min-w-0 flex-1 px-1">
+            <h1 className="truncate text-[20px] leading-tight font-medium">Nouvelle partie</h1>
+            <p className="truncate text-[13px] text-[#8696a0]">
+              Sur cet écran · {count} joueur{count > 1 ? 's' : ''}
+            </p>
+          </div>
         </div>
       </header>
 
-      <section className="grid grid-cols-2 gap-3">
-        {CORNER_ORDER.map((color) => {
-          const seat = setup.seats.find((s) => s.color === color)!;
-          return <SeatTile key={color} seat={seat} onChange={(patch) => updateSeat(color, patch)} />;
-        })}
-      </section>
+      <main className="mx-auto max-w-lg pb-40">
+        <section className="mx-4 mt-4 flex items-center gap-4 rounded-[28px] bg-[#1f2c33] p-4">
+          <BoardPreview seats={setup.seats} />
+          <div className="min-w-0 flex-1">
+            <p className="text-[16px] font-medium">Un seul téléphone</p>
+            <p className="mt-0.5 text-[13.5px] leading-snug text-[#8696a0]">
+              {wager
+                ? 'Chaque joueur confirme son compte avec un code reçu dans son app LuChat, puis vous vous passez l’appareil.'
+                : 'Passez-vous l’appareil à chaque tour. Complète avec des ordinateurs si vous êtes moins de 4.'}
+            </p>
+          </div>
+        </section>
 
-      {count === 2 && <DuelPicker setup={setup} onPick={(pair) => setSetup((s) => applyDuelPair(s, pair))} />}
+        <SectionTitle>Type de partie</SectionTitle>
+        <div className="mx-4 rounded-[24px] bg-[#1f2c33] p-3">
+          <StakePicker value={wager} onChange={setWager} players={Math.max(2, count)} freeOnly />
+        </div>
 
-      <AppearanceCard />
+        <SectionTitle>Joueurs</SectionTitle>
+        <ul className="divide-y divide-[#222d34]">
+          {CORNER_ORDER.map((color) => {
+            const seat = setup.seats.find((s) => s.color === color)!;
+            return (
+              <li key={color}>
+                <SeatRow
+                  seat={seat}
+                  staked={!!wager}
+                  account={accounts[color]}
+                  me={me}
+                  onEdit={() => setEditColor(color)}
+                  onAdd={(kind) => updateSeat(color, { kind })}
+                />
+              </li>
+            );
+          })}
+        </ul>
 
-      <RulesCard rules={setup.rules} onChange={(rules) => setSetup((s) => ({ ...s, rules }))} />
+        {count === 2 && <DuelPicker setup={setup} onPick={pickDuel} />}
 
-      <div className="fixed inset-x-0 bottom-0 bg-gradient-to-t from-[#0f1029] via-[#0f1029]/90 to-transparent px-4 pt-8 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <SectionTitle>Paramètres de la partie</SectionTitle>
+        <ListRow
+          leading={
+            <RowIcon color="#00a884">
+              <PresetIcon size={22} />
+            </RowIcon>
+          }
+          title={`Règles : ${preset?.label ?? 'personnalisées'}`}
+          subtitle={summary.length ? summary.join(' · ') : 'Règles standard'}
+          trailing={<Icon.ChevronRight className="text-[#8696a0]" />}
+          onClick={() => setRulesOpen(true)}
+        />
+        <ListRow
+          leading={
+            <RowIcon color="#53bdeb">
+              <Icon.Palette size={22} />
+            </RowIcon>
+          }
+          title="Apparence"
+          subtitle={`${board.name} · dés ${dice.name.toLowerCase()} · pions ${pawn.name.toLowerCase()}`}
+          trailing={<Icon.ChevronRight className="text-[#8696a0]" />}
+          onClick={() => setLookOpen(true)}
+        />
+      </main>
+
+      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-[#222d34] bg-[#0b141a] px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <div className="mx-auto max-w-lg">
-          {error && <p className="mb-2 text-center text-sm font-medium text-amber-300">{error}</p>}
-          <button type="button" disabled={!!error} onClick={start} className="btn btn-primary w-full py-4 text-lg">
-            Lancer la partie 🎲
+          {(error || launchError) && (
+            <p className={`mb-2 flex items-center justify-center gap-1.5 text-center text-[13px] ${launchError ? 'text-[#f15c6d]' : 'text-[#ffbc38]'}`}>
+              <Icon.Info size={16} className="shrink-0" />
+              {launchError ?? error}
+            </p>
+          )}
+          <button
+            type="button"
+            disabled={!!error || launching}
+            onClick={wager ? startStaked : start}
+            className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-[#00a884] text-[16px] font-semibold text-[#0b141a] shadow-lg shadow-black/30 transition active:scale-[0.98] disabled:bg-[#2a3942] disabled:text-[#8696a0] disabled:shadow-none"
+          >
+            <Icon.Play />
+            {table ? `Miser ${table.stake} ${table.currency === 'premium' ? 'Premium' : 'pièces'} et lancer` : 'Lancer la partie'}
           </button>
+          {table && !error && (
+            <p className="mt-2 text-center text-[12px] text-[#8696a0]">Les mises de tous les joueurs sont prélevées au lancement.</p>
+          )}
         </div>
       </div>
-    </main>
+
+      <Sheet open={editing !== null} title={editing ? `Joueur ${COLOR_LABEL[editing.color].toLowerCase()}` : ''} onClose={() => setEditColor(null)}>
+        {editing && (
+          <SeatEditor
+            seat={editing}
+            staked={!!wager}
+            me={me}
+            account={accounts[editing.color]}
+            taken={Object.entries(accounts)
+              .filter(([c, name]) => c !== editing.color && name)
+              .map(([, name]) => name!)}
+            onAccount={(username) => setAccount(editing.color, username)}
+            onChange={(patch) => updateSeat(editing.color, patch)}
+            onDone={() => setEditColor(null)}
+          />
+        )}
+      </Sheet>
+
+      <Sheet open={rulesOpen} title="Règles et variantes" onClose={() => setRulesOpen(false)}>
+        <RulesEditor rules={setup.rules} onChange={setRules} />
+      </Sheet>
+
+      <Sheet open={lookOpen} title="Apparence" onClose={() => setLookOpen(false)}>
+        <AppearancePicker />
+      </Sheet>
+    </div>
+  );
+}
+
+/** The four corners of the board, lit for the seats in play. */
+function BoardPreview({ seats }: { seats: LocalSeat[] }) {
+  return (
+    <span className="grid size-[92px] shrink-0 place-items-center">
+    <span className="grid size-[64px] rotate-45 grid-cols-2 gap-1 rounded-[18px] bg-black/30 p-1">
+      {CORNER_ORDER.map((c) => {
+        const seat = seats.find((s) => s.color === c)!;
+        const on = seat.kind !== 'none';
+        return (
+          <span
+            key={c}
+            className="grid place-items-center rounded-[10px] text-white transition"
+            style={{ background: on ? `linear-gradient(145deg, ${COLOR_HEX[c]}, ${COLOR_DARK[c]})` : 'rgba(255,255,255,0.06)' }}
+          >
+            {on && <span className="-rotate-45">{seat.kind === 'bot' ? <Icon.Robot size={16} /> : <Icon.Person size={16} />}</span>}
+          </span>
+        );
+      })}
+    </span>
+    </span>
+  );
+}
+
+function SeatAvatar({ seat }: { seat: LocalSeat }) {
+  const hex = COLOR_HEX[seat.color];
+  if (seat.kind === 'none') {
+    return (
+      <span className="grid size-11 place-items-center rounded-full border-2 border-dashed" style={{ borderColor: `${hex}99`, color: hex }}>
+        <Icon.PersonAdd size={20} />
+      </span>
+    );
+  }
+  return (
+    <span className="grid size-11 place-items-center rounded-full text-[17px] font-semibold text-white" style={{ background: hex }}>
+      {seat.kind === 'bot' ? <Icon.Robot size={22} /> : (seat.name.trim()[0] ?? COLOR_LABEL[seat.color][0]).toUpperCase()}
+    </span>
+  );
+}
+
+function SeatRow({
+  seat,
+  staked,
+  account,
+  me,
+  onEdit,
+  onAdd,
+}: {
+  seat: LocalSeat;
+  staked: boolean;
+  account?: string;
+  me: string | null;
+  onEdit: () => void;
+  onAdd: (kind: 'human' | 'bot') => void;
+}) {
+  const colorTag = (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="size-2 rounded-full" style={{ background: COLOR_HEX[seat.color] }} />
+      {COLOR_LABEL[seat.color]}
+    </span>
+  );
+
+  if (seat.kind === 'none') {
+    return (
+      <ListRow
+        leading={<SeatAvatar seat={seat} />}
+        title={<span className="text-[#8696a0]">Place libre</span>}
+        subtitle={colorTag}
+        trailing={
+          <span className="flex items-center gap-1">
+            {!staked && (
+              <IconButton label="Ajouter un ordinateur" onClick={() => onAdd('bot')}>
+                <Icon.Robot size={22} />
+              </IconButton>
+            )}
+            <button
+              type="button"
+              onClick={() => onAdd('human')}
+              className="h-9 rounded-full bg-[#00a884]/15 px-4 text-[14px] font-medium text-[#00a884] transition active:bg-[#00a884]/25"
+            >
+              Ajouter
+            </button>
+          </span>
+        }
+      />
+    );
+  }
+
+  const stakeStatus = !staked ? null : seat.kind === 'bot' ? (
+    <span className="text-[#f15c6d]">Pas d’ordinateur avec mise</span>
+  ) : account ? (
+    <span className="inline-flex items-center gap-0.5 text-[#25d366]">
+      <Icon.Check size={14} />
+      {account === me ? 'Toi' : 'Compte vérifié'}
+    </span>
+  ) : (
+    <span className="text-[#ffbc38]">Compte à vérifier</span>
+  );
+
+  return (
+    <ListRow
+      leading={<SeatAvatar seat={seat} />}
+      title={
+        seat.kind === 'bot'
+          ? `Ordinateur ${BOT_LEVEL_LABEL[seat.botLevel].toLowerCase()}`
+          : staked
+            ? (account ?? 'Toucher pour vérifier')
+            : seat.name.trim() || COLOR_LABEL[seat.color]
+      }
+      subtitle={
+        <span className="inline-flex items-center gap-1.5">
+          {colorTag}
+          <span>·</span>
+          {stakeStatus ?? (seat.kind === 'bot' ? 'Ordinateur' : 'Joueur')}
+        </span>
+      }
+      trailing={<Icon.ChevronRight className="text-[#8696a0]" />}
+      onClick={onEdit}
+    />
+  );
+}
+
+const KIND_OPTIONS = [
+  { kind: 'human', label: 'Joueur', icon: Icon.Person },
+  { kind: 'bot', label: 'Ordinateur', icon: Icon.Robot },
+  { kind: 'none', label: 'Personne', icon: Icon.Block },
+] as const;
+
+function SeatEditor({
+  seat,
+  staked,
+  me,
+  account,
+  taken,
+  onAccount,
+  onChange,
+  onDone,
+}: {
+  seat: LocalSeat;
+  staked: boolean;
+  me: string | null;
+  account?: string;
+  taken: string[];
+  onAccount: (username: string | undefined) => void;
+  onChange: (patch: Partial<LocalSeat>) => void;
+  onDone: () => void;
+}) {
+  const kinds = staked ? KIND_OPTIONS.filter((k) => k.kind !== 'bot') : KIND_OPTIONS;
+  return (
+    <div className="flex flex-col gap-5">
+      <div className={`grid gap-1 rounded-full bg-[#0b141a] p-1 ${staked ? 'grid-cols-2' : 'grid-cols-3'}`}>
+        {kinds.map(({ kind, label, icon: KindIcon }) => (
+          <button
+            key={kind}
+            type="button"
+            onClick={() => onChange({ kind })}
+            aria-pressed={seat.kind === kind}
+            className={`flex h-10 items-center justify-center gap-1.5 rounded-full text-[13.5px] font-medium transition ${
+              seat.kind === kind ? 'bg-[#00a884] text-[#0b141a]' : 'text-[#aebac1] active:bg-white/5'
+            }`}
+          >
+            <KindIcon size={18} />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {seat.kind === 'human' && staked && (
+        <AccountVerifier me={me} account={account} taken={taken} onAccount={onAccount} onDone={onDone} />
+      )}
+
+      {seat.kind === 'human' && !staked && (
+        <label className="block">
+          <span className="mb-1.5 block px-1 text-[13px] font-medium text-[#00a884]">Nom du joueur</span>
+          <input
+            value={seat.name}
+            maxLength={20}
+            autoFocus
+            onChange={(e) => onChange({ name: e.target.value })}
+            onKeyDown={(e) => e.key === 'Enter' && onDone()}
+            placeholder={COLOR_LABEL[seat.color]}
+            enterKeyHint="done"
+            className="h-12 w-full rounded-2xl border-b-2 border-[#00a884] bg-[#2a3942] px-4 text-[16px] text-[#e9edef] outline-none placeholder:text-[#8696a0]"
+          />
+        </label>
+      )}
+
+      {seat.kind === 'bot' && (
+        <ul className="-mx-5">
+          {(['easy', 'medium', 'hard'] as BotLevel[]).map((level) => {
+            const selected = seat.botLevel === level;
+            return (
+              <li key={level}>
+                <ListRow
+                  leading={
+                    <span className={`grid size-11 place-items-center rounded-full ${selected ? 'bg-[#00a884] text-[#0b141a]' : 'bg-white/10'}`}>
+                      <Icon.Robot size={22} />
+                    </span>
+                  }
+                  title={BOT_LEVEL_LABEL[level]}
+                  subtitle={BOT_LEVEL_HINT[level]}
+                  trailing={
+                    <span
+                      className={`grid size-5 place-items-center rounded-full border-2 ${selected ? 'border-[#00a884]' : 'border-[#8696a0]'}`}
+                    >
+                      {selected && <span className="size-2.5 rounded-full bg-[#00a884]" />}
+                    </span>
+                  }
+                  onClick={() => onChange({ botLevel: level })}
+                />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {seat.kind === 'none' && <p className="text-center text-[14px] text-[#8696a0]">Ce camp restera vide pendant la partie.</p>}
+
+      <button
+        type="button"
+        onClick={onDone}
+        className="flex h-12 w-full items-center justify-center rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] active:opacity-90"
+      >
+        Terminé
+      </button>
+    </div>
   );
 }
 
@@ -140,35 +530,31 @@ function DuelPicker({ setup, onPick }: { setup: LocalSetup; onPick: (pair: [Colo
   const valid = areDiagonal(active[0], active[1]);
 
   return (
-    <section className={`card flex flex-col gap-3 p-4 ${valid ? '' : 'ring-2 ring-amber-400'}`}>
-      <div>
-        <h2 className="font-bold">⚔️ Duel</h2>
-        <p className="text-sm text-white/60">À deux, les camps se font face en diagonale.</p>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
+    <>
+      <SectionTitle>Duel</SectionTitle>
+      <p className={`px-5 pb-2 text-[13.5px] ${valid ? 'text-[#8696a0]' : 'text-[#ffbc38]'}`}>
+        À deux, les camps se font face en diagonale.
+      </p>
+      <ul>
         {DUEL_PAIRS.map((pair) => {
           const selected = pair.every((c) => active.includes(c));
           return (
-            <button
-              key={pair.join('-')}
-              type="button"
-              onClick={() => onPick(pair)}
-              aria-pressed={selected}
-              className={`flex items-center gap-3 rounded-2xl p-2.5 text-left transition active:scale-[0.97] ${
-                selected ? 'bg-white text-slate-900 shadow-lg' : 'bg-white/[0.06]'
-              }`}
-            >
-              <MiniBoard pair={pair} />
-              <span className="text-sm leading-tight font-semibold">
-                {COLOR_LABEL[pair[0]]}
-                <span className={selected ? 'text-slate-500' : 'text-white/50'}> contre </span>
-                {COLOR_LABEL[pair[1]]}
-              </span>
-            </button>
+            <li key={pair.join('-')}>
+              <ListRow
+                leading={<MiniBoard pair={pair} />}
+                title={`${COLOR_LABEL[pair[0]]} contre ${COLOR_LABEL[pair[1]]}`}
+                trailing={
+                  <span className={`grid size-5 place-items-center rounded-full border-2 ${selected ? 'border-[#00a884]' : 'border-[#8696a0]'}`}>
+                    {selected && <span className="size-2.5 rounded-full bg-[#00a884]" />}
+                  </span>
+                }
+                onClick={() => onPick(pair)}
+              />
+            </li>
           );
         })}
-      </div>
-    </section>
+      </ul>
+    </>
   );
 }
 
@@ -180,75 +566,6 @@ function MiniBoard({ pair }: { pair: [Color, Color] }) {
         <span key={c} style={{ background: COLOR_HEX[c], opacity: pair.includes(c) ? 1 : 0.15 }} />
       ))}
     </span>
-  );
-}
-
-function SeatTile({ seat, onChange }: { seat: LocalSeat; onChange: (patch: Partial<LocalSeat>) => void }) {
-  const active = seat.kind !== 'none';
-  return (
-    <div
-      className={`flex flex-col gap-2 rounded-3xl p-2.5 transition ${active ? 'shadow-lg' : 'opacity-70'}`}
-      style={{
-        background: active
-          ? `linear-gradient(160deg, ${COLOR_HEX[seat.color]}55, ${COLOR_DARK[seat.color]}33)`
-          : 'rgba(255,255,255,0.04)',
-        border: `1.5px solid ${active ? COLOR_HEX[seat.color] : 'rgba(255,255,255,0.1)'}`,
-      }}
-    >
-      <div className="flex items-center gap-2">
-        <Avatar color={seat.color} seat={{ ...seat, isBot: seat.kind === 'bot', connected: true }} size={32} />
-        <span className="font-bold">{COLOR_LABEL[seat.color]}</span>
-      </div>
-
-      <div className="grid grid-cols-3 gap-1 rounded-2xl bg-black/25 p-1">
-        {(
-          [
-            ['human', '👤', 'Humain'],
-            ['bot', '🤖', 'Ordinateur'],
-            ['none', '✕', 'Aucun'],
-          ] as const
-        ).map(([kind, icon, label]) => (
-          <button
-            key={kind}
-            type="button"
-            aria-label={label}
-            title={label}
-            onClick={() => onChange({ kind })}
-            className={`chip-toggle py-1.5 text-base ${seat.kind === kind ? 'bg-white text-slate-900 shadow' : 'text-white/70'}`}
-          >
-            {icon}
-          </button>
-        ))}
-      </div>
-
-      {seat.kind === 'human' && (
-        <input
-          value={seat.name}
-          maxLength={20}
-          onChange={(e) => onChange({ name: e.target.value })}
-          placeholder="Nom"
-          aria-label={`Nom du joueur ${COLOR_LABEL[seat.color]}`}
-          className="w-full rounded-xl bg-black/25 px-3 py-2 text-sm font-medium outline-none ring-white/40 placeholder:text-white/40 focus:ring-2"
-        />
-      )}
-      {seat.kind === 'bot' && (
-        <div className="grid grid-cols-3 gap-1">
-          {(['easy', 'medium', 'hard'] as BotLevel[]).map((level) => (
-            <button
-              key={level}
-              type="button"
-              onClick={() => onChange({ botLevel: level })}
-              className={`chip-toggle px-0 py-1.5 text-[11px] ${
-                seat.botLevel === level ? 'bg-white text-slate-900 shadow' : 'bg-black/25 text-white/80'
-              }`}
-            >
-              {BOT_LEVEL_LABEL[level]}
-            </button>
-          ))}
-        </div>
-      )}
-      {seat.kind === 'none' && <p className="py-2 text-center text-xs text-white/50">Place libre</p>}
-    </div>
   );
 }
 
@@ -341,5 +658,174 @@ function LocalGame({ setup, onQuit }: { setup: LocalSetup; onQuit: () => void })
       </div>
     </Sheet>
     </>
+  );
+}
+
+/**
+ * Proves a player is next to this device: they get a code in their own LuChat app and type it here.
+ * The signed-in owner of the device just picks "C'est moi".
+ */
+function AccountVerifier({
+  me,
+  account,
+  taken,
+  onAccount,
+  onDone,
+}: {
+  me: string | null;
+  account?: string;
+  taken: string[];
+  onAccount: (username: string | undefined) => void;
+  onDone: () => void;
+}) {
+  const [username, setUsername] = useState('');
+  const [sentTo, setSentTo] = useState<{ username: string; online: boolean } | null>(null);
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (account) {
+    return (
+      <div className="flex items-center gap-3 rounded-2xl bg-[#25d366]/10 p-3">
+        <span className="grid size-10 place-items-center rounded-full bg-[#25d366] text-[#0b141a]">
+          <Icon.Check size={22} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[16px] font-semibold">{account}</span>
+          <span className="block text-[13px] text-[#8696a0]">{account === me ? 'C’est toi' : 'Compte vérifié par code'}</span>
+        </span>
+        <button type="button" onClick={() => onAccount(undefined)} className="h-9 rounded-full px-3 text-[14px] font-medium text-[#00a884] active:bg-white/5">
+          Changer
+        </button>
+      </div>
+    );
+  }
+
+  const request = (name: string) => {
+    const clean = name.trim();
+    if (!clean) return;
+    if (taken.some((t) => t.toLowerCase() === clean.toLowerCase())) return setError('Ce joueur a déjà une place.');
+    setBusy(true);
+    setError(null);
+    getSocket()
+      .timeout(10_000)
+      .emit('local:requestCode', { username: clean, auth: getSessionToken() }, (err, res) => {
+        setBusy(false);
+        if (err) return setError('Impossible de joindre le serveur de jeu.');
+        if (!res.ok) return setError(res.error);
+        setSentTo({ username: res.username, online: res.online });
+        setCode('');
+      });
+  };
+
+  const verify = () => {
+    if (!sentTo || code.length !== 6) return;
+    setBusy(true);
+    setError(null);
+    getSocket()
+      .timeout(10_000)
+      .emit('local:verifyCode', { username: sentTo.username, code }, (err, res) => {
+        setBusy(false);
+        if (err) return setError('Impossible de joindre le serveur de jeu.');
+        if (!res.ok) return setError(res.error);
+        onAccount(res.username);
+        onDone();
+      });
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      {me && !taken.includes(me) && !sentTo && (
+        <button
+          type="button"
+          onClick={() => {
+            onAccount(me);
+            onDone();
+          }}
+          className="flex h-12 items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] active:opacity-90"
+        >
+          <Icon.Person size={20} />
+          C’est moi ({me})
+        </button>
+      )}
+
+      {!sentTo ? (
+        <>
+          <p className="text-[13.5px] leading-snug text-[#8696a0]">
+            Sinon, entre le pseudo du joueur : il recevra un code à 6 chiffres dans son app LuChat, sur son propre téléphone.
+          </p>
+          <div className="flex gap-2">
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && request(username)}
+              autoCapitalize="none"
+              autoComplete="off"
+              spellCheck={false}
+              maxLength={16}
+              placeholder="Pseudo LuChat du joueur"
+              enterKeyHint="send"
+              className="h-12 min-w-0 flex-1 rounded-2xl border-b-2 border-[#00a884] bg-[#2a3942] px-4 text-[16px] text-[#e9edef] outline-none placeholder:text-[#8696a0]"
+            />
+            <button
+              type="button"
+              disabled={busy || !username.trim()}
+              onClick={() => request(username)}
+              className="h-12 shrink-0 rounded-full bg-[#00a884]/15 px-4 text-[14px] font-semibold text-[#00a884] disabled:opacity-40"
+            >
+              {busy ? 'Envoi…' : 'Envoyer le code'}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-[13.5px] leading-snug text-[#d1d7db]">
+            Code envoyé à <span className="font-semibold">{sentTo.username}</span>.{' '}
+            {sentTo.online
+              ? 'Il s’affiche dans son app LuChat.'
+              : 'Son app n’est pas ouverte : il a reçu une notification. Sinon, demande-lui d’ouvrir LuChat puis renvoie le code.'}
+          </p>
+          <input
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            onKeyDown={(e) => e.key === 'Enter' && verify()}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoFocus
+            placeholder="______"
+            aria-label="Code à 6 chiffres"
+            className="h-14 w-full rounded-2xl border-b-2 border-[#00a884] bg-[#2a3942] text-center font-mono text-[28px] tracking-[0.5em] text-[#e9edef] outline-none placeholder:text-[#8696a0]/50"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => request(sentTo.username)}
+              disabled={busy}
+              className="h-12 flex-1 rounded-full border border-[#2a3942] text-[14px] font-medium text-[#e9edef] active:bg-white/5 disabled:opacity-40"
+            >
+              Renvoyer
+            </button>
+            <button
+              type="button"
+              onClick={verify}
+              disabled={busy || code.length !== 6}
+              className="h-12 flex-1 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] disabled:opacity-40"
+            >
+              {busy ? 'Vérification…' : 'Valider'}
+            </button>
+          </div>
+          <button type="button" onClick={() => setSentTo(null)} className="text-[13px] text-[#8696a0]">
+            Changer de joueur
+          </button>
+        </>
+      )}
+
+      {error && (
+        <p className="flex items-center gap-1.5 text-[13px] text-[#f15c6d]">
+          <Icon.Info size={16} className="shrink-0" />
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

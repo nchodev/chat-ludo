@@ -20,10 +20,14 @@ import {
   type ShopItem,
 } from '@ludo/engine';
 import { ApiError, api } from './api';
+import { disablePush } from './push';
+import { clearReferrer, storedReferrer } from './referral';
+import { deviceId } from './socket';
 
 const GUEST_KEY = 'ludo:profile';
 const SESSION_KEY = 'ludo:session';
 const ACCOUNT_CACHE_KEY = 'ludo:account-cache';
+const ADULT_CACHE_KEY = 'ludo:adult-confirmed';
 
 export interface Session {
   token: string;
@@ -37,6 +41,10 @@ export interface ProfileState {
   /** Signed-in account, or null for a guest whose progress stays on this device. */
   session: Session | null;
   rank: number | null;
+  /** Purchased coins of the signed-in account, used at Premium tables. */
+  premiumCoins: number;
+  /** The account certified being 18 or older, which anything Premium requires. */
+  adultConfirmed: boolean;
 }
 
 interface AccountResponse {
@@ -44,9 +52,11 @@ interface AccountResponse {
   username: string;
   profile: unknown;
   rank: number;
+  premiumCoins?: number;
+  adultConfirmed?: boolean;
 }
 
-const INITIAL: ProfileState = { ready: false, profile: newProfile(), session: null, rank: null };
+const INITIAL: ProfileState = { ready: false, profile: newProfile(), session: null, rank: null, premiumCoins: 0, adultConfirmed: false };
 let state = INITIAL;
 const listeners = new Set<() => void>();
 
@@ -83,13 +93,15 @@ function applyAccount(res: AccountResponse) {
   if (!session) return;
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   localStorage.setItem(ACCOUNT_CACHE_KEY, JSON.stringify(profile));
-  set({ session, profile, rank: res.rank, ready: true });
+  localStorage.setItem(ADULT_CACHE_KEY, res.adultConfirmed ? '1' : '0');
+  set({ session, profile, rank: res.rank, premiumCoins: res.premiumCoins ?? 0, adultConfirmed: res.adultConfirmed ?? false, ready: true });
 }
 
 function signOutLocally() {
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(ACCOUNT_CACHE_KEY);
-  set({ session: null, rank: null, profile: loadGuest(), ready: true });
+  localStorage.removeItem(ADULT_CACHE_KEY);
+  set({ session: null, rank: null, premiumCoins: 0, adultConfirmed: false, profile: loadGuest(), ready: true });
 }
 
 let initialized = false;
@@ -100,7 +112,12 @@ function init() {
   const session = readJson(SESSION_KEY) as Session | null;
   if (session?.token) {
     const cached = readJson(ACCOUNT_CACHE_KEY);
-    set({ session, profile: cached ? normalizeProfile(cached) : newProfile(), ready: !!cached });
+    set({
+      session,
+      profile: cached ? normalizeProfile(cached) : newProfile(),
+      adultConfirmed: localStorage.getItem(ADULT_CACHE_KEY) === '1',
+      ready: !!cached,
+    });
     void refreshProfile();
   } else {
     set({ profile: loadGuest(), ready: true });
@@ -145,7 +162,11 @@ export function getSessionToken(): string | undefined {
 /* ------------------------------------------------------------------ */
 
 export async function register(username: string, password: string) {
-  const res = await api<AccountResponse>('/register', { body: { username, password, guestProfile: loadGuest() } });
+  const referrer = storedReferrer();
+  const res = await api<AccountResponse>('/register', {
+    body: { username, password, guestProfile: loadGuest(), device: deviceId(), ...(referrer && referrer !== username ? { referrer } : {}) },
+  });
+  clearReferrer();
   // The guest's progress now lives in the account; start the device's guest profile afresh.
   localStorage.setItem(GUEST_KEY, JSON.stringify({ ...newProfile(), appearance: loadGuest().appearance }));
   applyAccount(res);
@@ -155,8 +176,16 @@ export async function login(username: string, password: string) {
   applyAccount(await api<AccountResponse>('/login', { body: { username, password } }));
 }
 
+/** The player certifies being 18 or older; the server records it once for the account. */
+export async function confirmAdult() {
+  const token = state.session?.token;
+  if (!token) throw new Error('Connecte-toi d’abord.');
+  applyAccount(await api<AccountResponse>('/account/adult', { token, body: { accept: true } }));
+}
+
 export async function logout() {
   const token = state.session?.token;
+  await disablePush(token).catch(() => {});
   signOutLocally();
   if (token) await api('/logout', { token, body: {} }).catch(() => {});
 }

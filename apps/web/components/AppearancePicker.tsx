@@ -1,8 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import {
   HOME_COLUMN_START,
+  SHOP_PRICES,
   createGame,
   itemPrice,
   ownsItem,
@@ -14,9 +16,10 @@ import { Board } from './Board';
 import { DiceFace } from './Dice';
 import { Sheet } from './Sheet';
 import { CoinAmount } from './Coins';
+import { Icon } from './Icons';
 import { useAppearance } from '@/lib/appearance';
 import { sfx } from '@/lib/sound';
-import { BOARD_THEMES, DICE_STYLES, PAWN_STYLES } from '@/lib/themes';
+import { BOARD_THEMES, DICE_STYLES, PAWN_STYLES, type BoardTheme } from '@/lib/themes';
 import { PawnPreview } from './Pawn';
 import { buy, useProfile } from '@/lib/profile';
 
@@ -38,19 +41,81 @@ const DEMO_STATE: GameState = (() => {
   };
 })();
 
-function Check() {
+const CATEGORIES: { id: ShopCategory; label: string }[] = [
+  { id: 'board', label: 'Plateaux' },
+  { id: 'pawn', label: 'Pions' },
+  { id: 'dice', label: 'Dés' },
+];
+
+const ALL_ITEMS = Object.keys(SHOP_PRICES) as ShopItem[];
+
+interface ShopEntry {
+  item: ShopItem;
+  category: ShopCategory;
+  id: string;
+  name: string;
+  /** How the item reads in a sentence, e.g. "les pions étoiles". */
+  label: string;
+  price: number;
+}
+
+function entriesOf(category: ShopCategory): ShopEntry[] {
+  const styles: { id: string; name: string }[] = category === 'board' ? BOARD_THEMES : category === 'pawn' ? PAWN_STYLES : DICE_STYLES;
+  const prefix = category === 'board' ? 'le plateau' : category === 'pawn' ? 'les pions' : 'les dés';
+  return styles.map((style) => {
+    const item = `${category}:${style.id}` as ShopItem;
+    return { item, category, id: style.id, name: style.name, label: `${prefix} ${style.name.toLowerCase()}`, price: itemPrice(item) };
+  });
+}
+
+export function BoardThumb({ theme, pawnId, className = '' }: { theme: BoardTheme; pawnId?: string; className?: string }) {
+  const pawn = PAWN_STYLES.find((p) => p.id === pawnId) ?? PAWN_STYLES[0];
   return (
-    <span className="absolute top-2 right-2 grid size-6 place-items-center rounded-full bg-emerald-500 text-xs font-bold text-white shadow">
-      ✓
+    <span className={`block overflow-hidden rounded-xl p-1 ${className}`} style={{ background: theme.frame }}>
+      <span className="block overflow-hidden rounded-lg">
+        <Board state={DEMO_STATE} theme={theme} pawnStyle={pawn} />
+      </span>
     </span>
   );
 }
 
-function PriceTag({ price, affordable }: { price: number; affordable: boolean }) {
+function Preview({ entry, size }: { entry: ShopEntry; size: 'card' | 'large' }) {
+  const { board, pawn } = useAppearance();
+  if (entry.category === 'board') {
+    const theme = BOARD_THEMES.find((t) => t.id === entry.id)!;
+    return <BoardThumb theme={theme} pawnId={pawn.id} className={size === 'large' ? 'mx-auto w-full max-w-[260px]' : 'w-full'} />;
+  }
+  if (entry.category === 'pawn') {
+    const style = PAWN_STYLES.find((p) => p.id === entry.id)!;
+    return (
+      <span className={`block overflow-hidden rounded-xl ${size === 'large' ? 'mx-auto w-40' : 'w-full'}`}>
+        <PawnPreview pawnStyle={style} theme={board} />
+      </span>
+    );
+  }
+  const index = DICE_STYLES.findIndex((d) => d.id === entry.id);
+  return (
+    <span className="grid w-full place-items-center py-2">
+      <DiceFace value={(index % 6) + 1} shades={board.colors.blue} diceStyle={DICE_STYLES[index]} size={size === 'large' ? 96 : 52} />
+    </span>
+  );
+}
+
+function StatusLine({ equipped, owned, price, coins }: { equipped: boolean; owned: boolean; price: number; coins: number }) {
+  if (equipped) {
+    return (
+      <span className="flex items-center gap-1 text-[12.5px] font-semibold text-[#00a884]">
+        <Icon.Check size={15} />
+        Équipé
+      </span>
+    );
+  }
+  if (owned) return <span className="text-[12.5px] font-medium text-[#8696a0]">{price === 0 ? 'Gratuit' : 'Débloqué'}</span>;
+  const affordable = coins >= price;
   return (
     <span
-      className={`absolute top-2 right-2 rounded-full px-2 py-0.5 text-xs shadow ${
-        affordable ? 'bg-amber-400 text-amber-950' : 'bg-black/60 text-white/80'
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12.5px] ${
+        affordable ? 'bg-amber-400/15 text-amber-200' : 'bg-white/[0.06] text-[#8696a0]'
       }`}
     >
       <CoinAmount value={price} size={14} />
@@ -58,145 +123,262 @@ function PriceTag({ price, affordable }: { price: number; affordable: boolean })
   );
 }
 
-export function AppearancePicker() {
+/** Confirmation before spending coins, shown over everything (the picker may itself be in a sheet). */
+function PurchaseDialog({
+  entry,
+  coins,
+  busy,
+  error,
+  onBuy,
+  onClose,
+}: {
+  entry: ShopEntry;
+  coins: number;
+  busy: boolean;
+  error: string | null;
+  onBuy: () => void;
+  onClose: () => void;
+}) {
+  const missing = entry.price - coins;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:p-6" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={entry.name}
+        onClick={(e) => e.stopPropagation()}
+        className="sheet-up w-full max-w-md rounded-t-[28px] bg-[#1f2c33] px-5 pt-2 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-[#e9edef] shadow-2xl sm:rounded-3xl"
+      >
+        <div className="mx-auto h-1.5 w-10 rounded-full bg-white/20 sm:hidden" />
+        <div className="mt-4 rounded-3xl bg-[#111b21] p-4">
+          <Preview entry={entry} size="large" />
+        </div>
+        <h2 className="mt-4 text-center text-[20px] font-semibold">{entry.name}</h2>
+        <p className="mt-0.5 text-center text-[14px] text-[#8696a0]">
+          {CATEGORIES.find((c) => c.id === entry.category)?.label}
+        </p>
+
+        <dl className="mt-4 divide-y divide-white/[0.06] rounded-2xl bg-[#111b21] text-[14.5px]">
+          <div className="flex items-center justify-between px-4 py-3">
+            <dt className="text-[#aebac1]">Prix</dt>
+            <dd>
+              <CoinAmount value={entry.price} size={18} />
+            </dd>
+          </div>
+          <div className="flex items-center justify-between px-4 py-3">
+            <dt className="text-[#aebac1]">Ton solde</dt>
+            <dd>
+              <CoinAmount value={coins} size={18} />
+            </dd>
+          </div>
+          {missing <= 0 && (
+            <div className="flex items-center justify-between px-4 py-3">
+              <dt className="text-[#aebac1]">Après l’achat</dt>
+              <dd>
+                <CoinAmount value={coins - entry.price} size={18} className="text-[#8696a0]" />
+              </dd>
+            </div>
+          )}
+        </dl>
+
+        {error && <p className="mt-3 rounded-xl bg-[#f15c6d]/15 px-3 py-2 text-center text-[13.5px] text-[#ffb3bd]">{error}</p>}
+
+        <div className="mt-4 flex flex-col gap-2">
+          {missing > 0 ? (
+            <>
+              <p className="flex items-center justify-center gap-1.5 text-center text-[14px] text-amber-200">
+                <Icon.Lock size={16} />
+                Il te manque <CoinAmount value={missing} size={15} />
+              </p>
+              <button type="button" onClick={onClose} className="h-12 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] transition active:scale-[0.98]">
+                Compris
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={onBuy}
+                disabled={busy}
+                className="flex h-12 items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] transition active:scale-[0.98] disabled:opacity-60"
+              >
+                {busy ? (
+                  <span className="size-5 animate-spin rounded-full border-2 border-[#0b141a]/30 border-t-[#0b141a]" />
+                ) : (
+                  <Icon.Cart size={20} />
+                )}
+                Acheter et équiper
+              </button>
+              <button type="button" onClick={onClose} className="h-11 text-[14.5px] font-medium text-[#8696a0]">
+                Annuler
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/** Boards, pawns and dice: equips owned items, buys the others after a confirmation. */
+export function AppearancePicker({ showBalance = true }: { showBalance?: boolean }) {
   const { board, dice, pawn, update } = useAppearance();
   const { profile } = useProfile();
   const coins = profile.coins;
-  const [message, setMessage] = useState<string | null>(null);
-  const owns = (item: ShopItem) => ownsItem(profile, item);
-  const priceOf = (category: ShopCategory, id: string) => itemPrice(`${category}:${id}` as ShopItem);
+  const [tab, setTab] = useState<ShopCategory>('board');
+  const [buying, setBuying] = useState<ShopEntry | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
-  /** Equips an item, buying it first if needed. */
-  const pick = async (category: ShopCategory, id: string, name: string) => {
-    const item = `${category}:${id}` as ShopItem;
-    const price = itemPrice(item);
-    setMessage(null);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 2200);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  const equippedId = { board: board.id, pawn: pawn.id, dice: dice.id };
+  const owns = (item: ShopItem) => ownsItem(profile, item);
+  const ownedCount = (category: ShopCategory) => entriesOf(category).filter((e) => owns(e.item)).length;
+
+  const equip = async (entry: ShopEntry) => {
+    await update({ [entry.category]: entry.id });
+    setToast(`${entry.name} équipé`);
+  };
+
+  const choose = (entry: ShopEntry) => {
+    if (equippedId[entry.category] === entry.id) return;
+    if (owns(entry.item)) {
+      void equip(entry);
+      return;
+    }
+    setError(null);
+    setBuying(entry);
+  };
+
+  const confirmBuy = async () => {
+    if (!buying) return;
+    setBusy(true);
+    setError(null);
     try {
-      if (!owns(item)) {
-        if (coins < price) {
-          setMessage(`Il te manque ${price - coins} pièces pour « ${name} ». Gagne des parties pour en obtenir !`);
-          return;
-        }
-        if (!confirm(`Acheter « ${name} » pour ${price} pièces ?`)) return;
-        await buy(item);
-        sfx.finish();
-        setMessage(`« ${name} » débloqué !`);
-      }
-      await update({ [category]: id });
+      await buy(buying.item);
+      sfx.finish();
+      await update({ [buying.category]: buying.id });
+      setToast(`${buying.name} débloqué et équipé`);
+      setBuying(null);
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Achat impossible.');
+      setError(err instanceof Error ? err.message : 'Achat impossible.');
+    } finally {
+      setBusy(false);
     }
   };
 
+  const entries = entriesOf(tab);
+
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-2 text-sm">
-        <span className="text-white/70">Tes pièces</span>
-        <CoinAmount value={coins} size={22} className="text-base" />
+    <div className="flex flex-col gap-4">
+      {showBalance && (
+        <div className="flex items-center justify-between rounded-2xl bg-[#111b21] px-4 py-2.5">
+          <span className="text-[14px] text-[#aebac1]">Tes pièces</span>
+          <CoinAmount value={coins} size={22} className="text-[16px]" />
+        </div>
+      )}
+
+      <div role="tablist" aria-label="Catégories" className="grid grid-cols-3 gap-1 rounded-full bg-[#111b21] p-1">
+        {CATEGORIES.map((c) => {
+          const active = tab === c.id;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setTab(c.id)}
+              className={`flex h-10 items-center justify-center gap-1.5 rounded-full text-[14px] font-semibold transition ${
+                active ? 'bg-[#00a884] text-[#0b141a]' : 'text-[#aebac1] active:bg-white/5'
+              }`}
+            >
+              {c.label}
+              <span className={`text-[11.5px] font-medium ${active ? 'text-[#0b141a]/70' : 'text-[#8696a0]'}`}>
+                {ownedCount(c.id)}/{entriesOf(c.id).length}
+              </span>
+            </button>
+          );
+        })}
       </div>
-      {message && <p className="pop-in -mt-2 rounded-xl bg-amber-400/15 px-3 py-2 text-sm text-amber-100">{message}</p>}
 
-      <section>
-        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-white/60">Plateau</h3>
-        <div className="grid grid-cols-2 gap-3">
-          {BOARD_THEMES.map((theme) => {
-            const selected = board.id === theme.id;
-            const owned = owns(`board:${theme.id}` as ShopItem);
-            const price = priceOf('board', theme.id);
-            return (
-              <button
-                key={theme.id}
-                type="button"
-                onClick={() => pick('board', theme.id, theme.name)}
-                aria-pressed={selected}
-                className={`relative flex flex-col gap-2 rounded-2xl p-2 text-left transition active:scale-[0.97] ${
-                  selected ? 'bg-white/15 ring-2 ring-emerald-400' : 'bg-white/5'
-                }`}
-              >
-                <span
-                  className={`block overflow-hidden rounded-xl p-1 ${owned ? '' : 'opacity-60 saturate-50'}`}
-                  style={{ background: theme.frame }}
-                >
-                  <span className="block overflow-hidden rounded-lg">
-                    <Board state={DEMO_STATE} theme={theme} pawnStyle={pawn} />
-                  </span>
+      <div className={`grid gap-3 ${tab === 'board' ? 'grid-cols-2' : 'grid-cols-3'}`}>
+        {entries.map((entry) => {
+          const equipped = equippedId[entry.category] === entry.id;
+          const owned = owns(entry.item);
+          return (
+            <button
+              key={entry.item}
+              type="button"
+              onClick={() => choose(entry)}
+              aria-pressed={equipped}
+              aria-label={owned ? `Équiper ${entry.label}` : `Acheter ${entry.label} pour ${entry.price} pièces`}
+              className={`relative flex flex-col gap-2 rounded-2xl p-2 pb-2.5 text-left transition active:scale-[0.97] ${
+                equipped ? 'bg-[#00a884]/10 ring-2 ring-[#00a884]' : 'bg-[#111b21] ring-1 ring-white/[0.06]'
+              }`}
+            >
+              <span className={`relative block ${owned ? '' : 'opacity-55 saturate-50'}`}>
+                <Preview entry={entry} size="card" />
+              </span>
+              {!owned && (
+                <span className="absolute top-3 right-3 grid size-7 place-items-center rounded-full bg-[#0b141a]/85 text-[#e9edef] shadow">
+                  <Icon.Lock size={15} />
                 </span>
-                <span className="px-1 text-sm font-semibold">
-                  {owned ? theme.icon : '🔒'} {theme.name}
+              )}
+              {equipped && (
+                <span className="absolute top-3 right-3 grid size-7 place-items-center rounded-full bg-[#00a884] text-[#0b141a] shadow">
+                  <Icon.Check size={16} />
                 </span>
-                {selected && <Check />}
-                {!owned && <PriceTag price={price} affordable={coins >= price} />}
-              </button>
-            );
-          })}
-        </div>
-      </section>
+              )}
+              <span className="flex flex-col gap-1 px-1">
+                <span className="truncate text-[14px] leading-tight font-semibold text-[#e9edef]">{entry.name}</span>
+                <StatusLine equipped={equipped} owned={owned} price={entry.price} coins={coins} />
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
-      <section>
-        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-white/60">Pions</h3>
-        <div className="grid grid-cols-3 gap-3">
-          {PAWN_STYLES.map((style) => {
-            const selected = pawn.id === style.id;
-            const owned = owns(`pawn:${style.id}` as ShopItem);
-            const price = priceOf('pawn', style.id);
-            return (
-              <button
-                key={style.id}
-                type="button"
-                onClick={() => pick('pawn', style.id, `Pions ${style.name.toLowerCase()}`)}
-                aria-pressed={selected}
-                className={`relative flex flex-col items-center gap-2 rounded-2xl p-2 pt-5 transition active:scale-[0.97] ${
-                  selected ? 'bg-white/15 ring-2 ring-emerald-400' : 'bg-white/5'
-                }`}
-              >
-                <span className={`block w-full overflow-hidden rounded-xl ${owned ? '' : 'opacity-60 saturate-50'}`}>
-                  <PawnPreview pawnStyle={style} theme={board} />
-                </span>
-                <span className="text-center text-sm leading-tight font-semibold">
-                  {owned ? '' : '🔒 '}
-                  {style.name}
-                </span>
-                {selected && <Check />}
-                {!owned && <PriceTag price={price} affordable={coins >= price} />}
-              </button>
-            );
-          })}
-        </div>
-      </section>
+      {toast &&
+        createPortal(
+          <div className="pop-in fixed inset-x-4 bottom-[max(1.5rem,env(safe-area-inset-bottom))] z-[70] mx-auto flex max-w-sm items-center justify-center gap-2 rounded-full bg-[#e9edef] px-4 py-3 text-[14px] font-semibold text-[#0b141a] shadow-xl">
+            <Icon.Check size={18} className="text-[#00a884]" />
+            {toast}
+          </div>,
+          document.body,
+        )}
 
-      <section>
-        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-white/60">Dés</h3>
-        <div className="grid grid-cols-3 gap-3">
-          {DICE_STYLES.map((style, i) => {
-            const selected = dice.id === style.id;
-            const owned = owns(`dice:${style.id}` as ShopItem);
-            const price = priceOf('dice', style.id);
-            return (
-              <button
-                key={style.id}
-                type="button"
-                onClick={() => pick('dice', style.id, `Dés ${style.name.toLowerCase()}`)}
-                aria-pressed={selected}
-                className={`relative flex flex-col items-center gap-3 rounded-2xl px-2 pt-5 pb-2 transition active:scale-[0.97] ${
-                  selected ? 'bg-white/15 ring-2 ring-emerald-400' : 'bg-white/5'
-                }`}
-              >
-                <span className={owned ? '' : 'opacity-60 saturate-50'}>
-                  <DiceFace value={(i % 6) + 1} shades={board.colors.blue} diceStyle={style} size={54} />
-                </span>
-                <span className="text-sm font-semibold">
-                  {owned ? '' : '🔒 '}
-                  {style.name}
-                </span>
-                {selected && <Check />}
-                {!owned && <PriceTag price={price} affordable={coins >= price} />}
-              </button>
-            );
-          })}
-        </div>
-      </section>
+      {buying && (
+        <PurchaseDialog
+          entry={buying}
+          coins={coins}
+          busy={busy}
+          error={error}
+          onBuy={confirmBuy}
+          onClose={() => !busy && setBuying(null)}
+        />
+      )}
     </div>
   );
+}
+
+/** Items unlocked so far, out of the whole catalogue. */
+export function useShopProgress() {
+  const { profile } = useProfile();
+  const owned = ALL_ITEMS.filter((item) => ownsItem(profile, item)).length;
+  return { owned, total: ALL_ITEMS.length };
 }
 
 /** Summary of the current appearance, opening the picker. */
@@ -207,25 +389,30 @@ export function AppearanceCard({ note }: { note?: string }) {
   return (
     <section className="card p-4">
       <button type="button" onClick={() => setOpen(true)} className="flex w-full items-center gap-4 text-left">
-        <span className="block w-20 shrink-0 overflow-hidden rounded-xl p-0.5" style={{ background: board.frame }}>
-          <span className="block overflow-hidden rounded-[10px]">
-            <Board state={DEMO_STATE} theme={board} pawnStyle={pawn} />
-          </span>
-        </span>
+        <BoardThumb theme={board} pawnId={pawn.id} className="w-20 shrink-0 p-0.5" />
         <span className="min-w-0 flex-1">
           <span className="block font-bold">Apparence</span>
           <span className="block text-sm text-white/70">
-            {board.icon} {board.name} · dés {dice.name.toLowerCase()} · pions {pawn.name.toLowerCase()}
+            {board.name} · dés {dice.name.toLowerCase()} · pions {pawn.name.toLowerCase()}
           </span>
           {note && <span className="mt-0.5 block text-xs text-white/50">{note}</span>}
         </span>
         <DiceFace value={5} shades={board.colors.red} diceStyle={dice} size={40} />
-        <span className="text-xl text-white/40">›</span>
+        <Icon.ChevronRight size={22} className="text-white/40" />
       </button>
 
       <Sheet open={open} title="Apparence" onClose={() => setOpen(false)}>
         <AppearancePicker />
       </Sheet>
+    </section>
+  );
+}
+
+export function ShopSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section>
+      <h2 className="mb-2 px-1 text-[13px] font-semibold tracking-wide text-[#00a884] uppercase">{title}</h2>
+      {children}
     </section>
   );
 }

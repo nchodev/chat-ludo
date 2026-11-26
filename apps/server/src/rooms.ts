@@ -1,7 +1,9 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
   COLORS,
+  MAX_TIMEOUTS,
   TEAMMATE,
+  TURN_TIME_MS,
   REACTION_COOLDOWN_MS,
   applyMove,
   areDiagonal,
@@ -11,7 +13,6 @@ import {
   eventKey,
   forfeit,
   rollDice,
-  rollDie,
   type BotLevel,
   type Color,
   type GameState,
@@ -21,8 +22,16 @@ import {
   type ReactionMessage,
   type RoomView,
   type Rules,
+  type StakeTable,
+  ADULT_REQUIRED,
+  PREMIUM_CLOSED,
+  potSplit,
+  stakeConfig,
 } from '@ludo/engine';
 import { recordOnlineGame } from './api';
+import { archiveGame, forfeitPot, getWallet, notAdultConfirmed, openPot, overPremiumCap, refundPot, settlePot } from './db';
+import { newFairSeed, nextFairRoll, publicFair, type FairSeed } from './fair';
+import { LINKED_PLAYERS_ERROR, linkedPlayers, originOf, type Origin } from './identity';
 
 type Seat = { kind: 'empty' } | { kind: 'human'; token: string } | { kind: 'bot'; level: BotLevel };
 
@@ -34,6 +43,8 @@ export interface Member {
   lastReactionAt?: number;
   /** Account of a signed-in player, whose online games count for their profile. */
   userId?: number;
+  /** Device and address the member last connected from. */
+  origin?: Origin;
 }
 
 export interface Room {
@@ -53,7 +64,43 @@ export interface Room {
   results: Map<string, ProgressSummary>;
   /** Members who asked for a rematch after the last game. */
   rematchVotes: Set<string>;
+  /** When the current action must be played by, keyed by the game and action count it belongs to. */
+  deadline: { key: string; at: number } | null;
+  /** Times each player ran out of time in the current game. */
+  timeouts: Partial<Record<Color, number>>;
+  /** Player whose turn the computer is finishing after they ran out of time. */
+  autoplay: Color | null;
+  /** Coins every player put in for the current or last game. */
+  stake?: RoomStakeState;
+  /** Made by quick match: seats, rules and stake can't be changed. */
+  matched?: boolean;
+  /** Made by quick match, staked or not. */
+  quick?: boolean;
+  /** Private rooms: stake the host set for every game. */
+  wager?: StakeTable;
+  /** Staked game on one screen: the host's device plays every seat. */
+  shared?: boolean;
+  /** The shared device left mid-game: the computer finishes it so the pot still goes to a winner. */
+  abandoned?: boolean;
+  /** Secret seed the current game's dice come from (see `fair.ts`). */
+  fair?: FairSeed;
+  startedAt?: number;
 }
+
+interface RoomStakeState {
+  potId: string;
+  table: StakeTable;
+  /** Account of each staked seat, fixed when the stakes were taken. */
+  players: Partial<Record<Color, number>>;
+  /** Winner's share when the stakes were taken: a later settings change doesn't affect this game. */
+  share: number;
+  payout: { winner: string | null; amount: number } | null;
+}
+
+const MATCHED_ROOM_ERROR = 'Partie avec mise : relance une recherche depuis la partie rapide.';
+const SHARED_ROOM_ERROR = 'Partie sur un seul écran : change les joueurs depuis « Nouvelle partie ».';
+const ABANDONED_BOT_DELAY_MS = 250;
+const NO_BOTS_WITH_STAKE = 'Pas d’ordinateur dans une partie avec mise : seuls des joueurs connectés peuvent miser.';
 
 const BOT_NAMES: Record<BotLevel, string> = {
   easy: 'Ordi facile',
@@ -65,9 +112,7 @@ const BOT_DELAY_MS = 1000;
 const BOT_REACTION_DELAY_MS = 700;
 /** Free seats are handed out so that the first two players face each other diagonally. */
 const SEAT_PREFERENCE: Color[] = ['red', 'yellow', 'green', 'blue'];
-const DISCONNECTED_TAKEOVER_MS = 15_000;
-const DISCONNECT_FORFEIT_MS = 60_000;
-const IDLE_TAKEOVER_MS = 45_000;
+const DISCONNECT_FORFEIT_MS = 30_000;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 /** 4 players and a few spectators. */
 const MAX_MEMBERS = 12;
@@ -102,7 +147,7 @@ export class RoomManager {
     const room: Room = {
       code,
       hostToken: token,
-      members: new Map([[token, { token, name: hostName, socketId, userId }]]),
+      members: new Map([[token, { token, name: hostName, socketId, userId, origin: originOf(socketId) }]]),
       seats: { red: { kind: 'human', token }, green: { kind: 'empty' }, yellow: { kind: 'empty' }, blue: { kind: 'empty' } },
       rules,
       game: null,
@@ -110,19 +155,27 @@ export class RoomManager {
       lastActivity: Date.now(),
       results: new Map(),
       rematchVotes: new Set(),
+      deadline: null,
+      timeouts: {},
+      autoplay: null,
     };
     this.rooms.set(code, room);
     return { room, token };
   }
 
   /** Creates a public room for matched players (plus bots if needed) and starts the game at once. */
-  createMatch(players: { name: string; socketId: string; userId?: number }[], bots: BotLevel[], rules: Rules) {
+  createMatch(
+    players: { name: string; socketId: string; userId?: number }[],
+    bots: BotLevel[],
+    rules: Rules,
+    stake?: { potId: string; table: StakeTable },
+  ) {
     const { room, token } = this.create(players[0].name, rules, players[0].socketId, players[0].userId);
     room.seats.red = { kind: 'empty' };
     const tokens = [token];
     for (const p of players.slice(1)) {
       const t = randomUUID();
-      room.members.set(t, { token: t, name: p.name, socketId: p.socketId, userId: p.userId });
+      room.members.set(t, { token: t, name: p.name, socketId: p.socketId, userId: p.userId, origin: originOf(p.socketId) });
       tokens.push(t);
     }
     const seats: Seat[] = [
@@ -130,14 +183,55 @@ export class RoomManager {
       ...bots.map((level): Seat => ({ kind: 'bot', level })),
     ];
     seats.forEach((seat, i) => (room.seats[SEAT_PREFERENCE[i]] = seat));
+    if (stake) {
+      const staked: Partial<Record<Color, number>> = {};
+      for (const color of COLORS) {
+        const seat = room.seats[color];
+        const userId = seat.kind === 'human' ? room.members.get(seat.token)?.userId : undefined;
+        if (userId) staked[color] = userId;
+      }
+      room.stake = { ...stake, players: staked, share: stakeConfig().winnerShare, payout: null };
+      room.matched = true;
+    }
+    room.quick = true;
     this.launch(room);
     return { room, tokens };
+  }
+
+  /**
+   * Staked game on one device: the host and players who proved with a code that they are next
+   * to it. Stakes are taken at once; nothing is created if one of them can't pay.
+   */
+  createShared(players: { color: Color; name: string; userId: number }[], hostUserId: number, rules: Rules, table: StakeTable, socketId: string) {
+    const host = players.find((p) => p.userId === hostUserId);
+    if (!host) throw new RoomError('Tu dois faire partie des joueurs.');
+    const { room, token } = this.create(host.name, rules, socketId, hostUserId);
+    room.seats = { red: { kind: 'empty' }, green: { kind: 'empty' }, yellow: { kind: 'empty' }, blue: { kind: 'empty' } };
+    for (const p of players) {
+      let seatToken = token;
+      if (p !== host) {
+        seatToken = randomUUID();
+        room.members.set(seatToken, { token: seatToken, name: p.name, socketId: null, userId: p.userId });
+      }
+      room.seats[p.color] = { kind: 'human', token: seatToken };
+    }
+    room.shared = true;
+    room.wager = table;
+    try {
+      this.launch(room);
+    } catch (err) {
+      // Gives the stakes back if they were taken before the failure.
+      this.delete(room);
+      throw err;
+    }
+    return { room, token };
   }
 
   join(room: Room, name: string, socketId: string, token?: string, userId?: number): string {
     const existing = token ? room.members.get(token) : undefined;
     if (existing) {
       existing.socketId = socketId;
+      existing.origin = originOf(socketId) ?? existing.origin;
       existing.name = name || existing.name;
       existing.userId = userId ?? existing.userId;
       clearTimeout(existing.forfeitTimer);
@@ -147,7 +241,7 @@ export class RoomManager {
 
     if (room.members.size >= MAX_MEMBERS) throw new RoomError('Ce salon est plein.');
     const newToken = randomUUID();
-    room.members.set(newToken, { token: newToken, name, socketId, userId });
+    room.members.set(newToken, { token: newToken, name, socketId, userId, origin: originOf(socketId) });
     if (!room.game) {
       const free = SEAT_PREFERENCE.find((c) => room.seats[c].kind === 'empty');
       if (free) room.seats[free] = { kind: 'human', token: newToken };
@@ -158,7 +252,15 @@ export class RoomManager {
 
   disconnect(room: Room, token: string) {
     const member = room.members.get(token);
-    if (member) {
+    if (member && room.shared && token === room.hostToken) {
+      member.socketId = null;
+      clearTimeout(member.forfeitTimer);
+      member.forfeitTimer = setTimeout(() => {
+        if (member.socketId || !room.game || room.game.phase === 'over') return;
+        room.abandoned = true;
+        this.touch(room);
+      }, DISCONNECT_FORFEIT_MS);
+    } else if (member) {
       member.socketId = null;
       if (this.playingColor(room, token)) {
         clearTimeout(member.forfeitTimer);
@@ -173,8 +275,25 @@ export class RoomManager {
     this.touch(room);
   }
 
-  /** Leaving during a game counts as a forfeit. */
+  /**
+   * Leaving during a game counts as a forfeit. On a shared device the game ends for everyone
+   * and every stake is lost (they were warned); a dropped connection is handled in disconnect.
+   */
   leave(room: Room, token: string) {
+    if (room.shared && token === room.hostToken) {
+      clearTimeout(room.members.get(token)?.forfeitTimer);
+      const stake = room.stake;
+      if (room.game && room.game.phase !== 'over' && stake && !stake.payout) {
+        try {
+          if (forfeitPot(stake.potId)) stake.payout = { winner: null, amount: 0 };
+          this.archive(room, room.game, 'abandon de l’appareil partagé');
+        } catch (err) {
+          console.error('Impossible de clore la cagnotte abandonnée', err);
+        }
+      }
+      this.delete(room);
+      return;
+    }
     const member = room.members.get(token);
     clearTimeout(member?.forfeitTimer);
     const playing = this.playingColor(room, token);
@@ -194,10 +313,20 @@ export class RoomManager {
 
   delete(room: Room) {
     if (room.timer) clearTimeout(room.timer);
+    if (room.stake && !room.stake.payout) {
+      try {
+        refundPot(room.stake.potId);
+        room.stake.payout = { winner: null, amount: 0 };
+      } catch (err) {
+        console.error('Remboursement impossible', err);
+      }
+    }
     this.rooms.delete(room.code);
   }
 
   takeSeat(room: Room, token: string, color: Color) {
+    if (room.shared) throw new RoomError(SHARED_ROOM_ERROR);
+    if (room.matched) throw new RoomError(MATCHED_ROOM_ERROR);
     if (room.game) throw new RoomError('La partie a déjà commencé.');
     if (room.seats[color].kind !== 'empty') throw new RoomError('Cette place est occupée.');
     for (const c of COLORS) {
@@ -210,15 +339,34 @@ export class RoomManager {
 
   setSeat(room: Room, token: string, color: Color, kind: 'empty' | 'bot', level: BotLevel = 'medium') {
     this.assertHost(room, token);
+    if (room.shared) throw new RoomError(SHARED_ROOM_ERROR);
+    if (room.matched) throw new RoomError(MATCHED_ROOM_ERROR);
     if (room.game) throw new RoomError('La partie a déjà commencé.');
     const seat = room.seats[color];
     if (seat.kind === 'human' && seat.token === token) throw new RoomError('Tu ne peux pas libérer ta propre place.');
+    if (kind === 'bot' && room.wager) throw new RoomError(NO_BOTS_WITH_STAKE);
     room.seats[color] = kind === 'bot' ? { kind: 'bot', level } : { kind: 'empty' };
     this.touch(room);
   }
 
-  setRules(room: Room, token: string, rules: Rules) {
+  setWager(room: Room, token: string, table: StakeTable | null) {
     this.assertHost(room, token);
+    if (room.quick) throw new RoomError('La mise se choisit dans un salon privé.');
+    if (room.shared) throw new RoomError(SHARED_ROOM_ERROR);
+    if (room.game && room.game.phase !== 'over') throw new RoomError('La partie a déjà commencé.');
+    if (table && COLORS.some((c) => room.seats[c].kind === 'bot')) {
+      throw new RoomError('Retire d’abord les ordinateurs : seuls des joueurs connectés peuvent miser.');
+    }
+    const hostId = room.members.get(token)?.userId;
+    if (table?.currency === 'premium' && (!hostId || notAdultConfirmed([hostId]).length)) throw new RoomError(ADULT_REQUIRED);
+    room.wager = table ?? undefined;
+    this.touch(room);
+  }
+
+  setRules(room: Room, token: string, rules: Rules) {
+    if (room.shared) throw new RoomError(SHARED_ROOM_ERROR);
+    this.assertHost(room, token);
+    if (room.matched) throw new RoomError(MATCHED_ROOM_ERROR);
     if (room.game) throw new RoomError('La partie a déjà commencé.');
     room.rules = rules;
     this.touch(room);
@@ -226,6 +374,7 @@ export class RoomManager {
 
   start(room: Room, token: string) {
     this.assertHost(room, token);
+    if (room.matched) throw new RoomError(MATCHED_ROOM_ERROR);
     if (room.game && room.game.phase !== 'over') throw new RoomError('La partie a déjà commencé.');
     this.launch(room);
   }
@@ -235,7 +384,13 @@ export class RoomManager {
    * player still seated has voted.
    */
   rematch(room: Room, token: string) {
+    if (room.matched) throw new RoomError(MATCHED_ROOM_ERROR);
     if (!room.game || room.game.phase !== 'over') throw new RoomError("La partie n'est pas terminée.");
+    if (room.shared) {
+      this.assertHost(room, token);
+      this.launch(room);
+      return;
+    }
     const humans = COLORS.flatMap((c) => {
       const seat = room.seats[c];
       return seat.kind === 'human' ? [seat.token] : [];
@@ -246,18 +401,84 @@ export class RoomManager {
     }
     room.rematchVotes.add(token);
     const waiting = humans.filter((t) => room.members.get(t)?.socketId && !room.rematchVotes.has(t));
-    if (waiting.length === 0) this.launch(room);
-    else this.touch(room);
+    if (waiting.length > 0) {
+      this.touch(room);
+      return;
+    }
+    try {
+      this.launch(room);
+    } catch (err) {
+      room.rematchVotes.clear();
+      this.touch(room);
+      throw err;
+    }
+  }
+
+  /** Takes every seated player's stake for a private room with a wager; throws if one of them can't pay. */
+  private collectWager(room: Room) {
+    const table = room.wager;
+    if (!table) {
+      room.stake = undefined;
+      return;
+    }
+    if (table.currency === 'premium' && !stakeConfig().premiumEnabled) throw new RoomError(`${PREMIUM_CLOSED} Choisis une mise Free ou une partie sans mise.`);
+    const players: Partial<Record<Color, number>> = {};
+    const guests: string[] = [];
+    for (const color of COLORS) {
+      const seat = room.seats[color];
+      if (seat.kind === 'bot') throw new RoomError(NO_BOTS_WITH_STAKE);
+      if (seat.kind !== 'human') continue;
+      const userId = room.members.get(seat.token)?.userId;
+      if (userId) players[color] = userId;
+      else guests.push(this.seatName(room, color));
+    }
+    if (guests.length) {
+      throw new RoomError(`${guests.join(', ')} doi${guests.length > 1 ? 'vent' : 't'} se connecter à un compte pour miser.`);
+    }
+    if (Object.keys(players).length < 2) throw new RoomError('Il faut au moins 2 joueurs pour lancer la partie.');
+    const staked = COLORS.filter((c) => players[c]);
+    const linked = linkedPlayers(
+      staked.map((c) => {
+        const seat = room.seats[c];
+        return seat.kind === 'human' ? room.members.get(seat.token)?.origin : undefined;
+      }),
+      table.currency === 'premium',
+    );
+    if (linked) throw new RoomError(LINKED_PLAYERS_ERROR(this.seatName(room, staked[linked[0]]), this.seatName(room, staked[linked[1]])));
+    const userIds = Object.values(players) as number[];
+    const minors = table.currency === 'premium' ? notAdultConfirmed(userIds) : [];
+    if (minors.length) {
+      const names = staked.filter((c) => minors.includes(players[c]!)).map((c) => this.seatName(room, c));
+      throw new RoomError(`${names.join(', ')} doi${names.length > 1 ? 'vent' : 't'} d’abord attester avoir 18 ans ou plus pour miser des pièces Premium.`);
+    }
+    const capped = table.currency === 'premium' ? overPremiumCap(userIds) : [];
+    if (capped.length) {
+      const names = staked.filter((c) => capped.includes(players[c]!)).map((c) => this.seatName(room, c));
+      throw new RoomError(`${names.join(', ')} dépasse${names.length > 1 ? 'nt' : ''} le plafond de ${stakeConfig().premiumWalletCap.toLocaleString('fr-FR')} pièces Premium : retrait nécessaire avant de miser.`);
+    }
+    const potId = randomUUID();
+    const short = openPot(potId, table.id, table.currency, table.stake, userIds);
+    if (short.length) {
+      const names = COLORS.filter((c) => players[c] && short.includes(players[c]!)).map((c) => this.seatName(room, c));
+      throw new RoomError(`${names.join(', ')} n’${names.length > 1 ? 'ont' : 'a'} pas assez de pièces pour miser ${table.stake}.`);
+    }
+    room.stake = { potId, table, players, share: stakeConfig().winnerShare, payout: null };
   }
 
   private launch(room: Room) {
     this.placeDuelDiagonally(room);
+    if (!room.matched) this.collectWager(room);
     const players = COLORS.filter((c) => room.seats[c].kind !== 'empty').map((color) => ({
       color,
       name: this.seatName(room, color),
     }));
     room.game = createGame(players, room.rules);
+    room.fair = newFairSeed(room.game.id);
+    room.startedAt = Date.now();
     room.rematchVotes.clear();
+    room.deadline = null;
+    room.timeouts = {};
+    room.autoplay = null;
     this.touch(room);
   }
 
@@ -275,39 +496,78 @@ export class RoomManager {
   }
 
   backToLobby(room: Room, token: string) {
+    if (room.shared) throw new RoomError(SHARED_ROOM_ERROR);
     this.assertHost(room, token);
+    if (room.matched) throw new RoomError(MATCHED_ROOM_ERROR);
+    if (room.stake && !room.stake.payout) throw new RoomError('Partie avec mise en cours : elle doit se terminer d’abord.');
     room.game = null;
+    room.stake = undefined;
     room.rematchVotes.clear();
     this.touch(room);
   }
 
   roll(room: Room, token: string) {
     const game = this.assertTurn(room, token);
-    room.game = rollDieFor(game);
+    room.game = this.rollFor(room, game);
+    this.playerActed(room, game);
     this.touch(room);
   }
 
   move(room: Room, token: string, pawn: number) {
     const game = this.assertTurn(room, token);
     room.game = applyMove(game, pawn);
+    this.playerActed(room, game);
     this.touch(room);
   }
 
-  /** Plans the next automatic action: bots, and humans who are disconnected or idle. */
+  private rollFor(room: Room, game: GameState): GameState {
+    if (room.fair?.gameId !== game.id) room.fair = newFairSeed(game.id);
+    return rollDice(game, nextFairRoll(room.fair));
+  }
+
+  /** Only turns missed in a row lose the game: playing again clears the count. */
+  private playerActed(room: Room, game: GameState) {
+    delete room.timeouts[game.players[game.current].color];
+  }
+
+  /**
+   * Plans the next automatic action: bots play after a short pause; a human who doesn't act
+   * within TURN_TIME_MS gets a timeout, then the computer finishes their turn. The
+   * MAX_TIMEOUTS-th timeout loses the game.
+   */
   schedule(room: Room) {
     if (room.timer) clearTimeout(room.timer);
     room.timer = null;
     const game = room.game;
-    if (!game || game.phase === 'over') return;
+    if (!game || game.phase === 'over') {
+      room.deadline = null;
+      room.autoplay = null;
+      if (room.abandoned) this.delete(room);
+      return;
+    }
 
-    const seat = room.seats[game.players[game.current].color];
+    const color = game.players[game.current].color;
+    if (room.autoplay !== color) room.autoplay = null;
+    const seat = room.seats[color];
     let level: BotLevel = 'medium';
     let delay: number;
-    if (seat.kind === 'bot') {
+    let timesOut = false;
+    if (room.abandoned) {
+      delay = ABANDONED_BOT_DELAY_MS;
+      room.deadline = null;
+    } else if (seat.kind === 'bot') {
       level = seat.level;
       delay = BOT_DELAY_MS;
+      room.deadline = null;
+    } else if (seat.kind === 'human' && room.autoplay === color) {
+      delay = BOT_DELAY_MS;
+      room.deadline = null;
     } else if (seat.kind === 'human') {
-      delay = room.members.get(seat.token)?.socketId ? IDLE_TAKEOVER_MS : DISCONNECTED_TAKEOVER_MS;
+      // Reconnections and other updates must not give the player more time.
+      const key = `${game.id}:${game.history.length}`;
+      if (room.deadline?.key !== key) room.deadline = { key, at: Date.now() + TURN_TIME_MS };
+      delay = Math.max(0, room.deadline.at - Date.now());
+      timesOut = true;
     } else {
       return;
     }
@@ -316,7 +576,17 @@ export class RoomManager {
       room.timer = null;
       const current = room.game;
       if (!current || current.phase === 'over') return;
-      room.game = current.phase === 'roll' ? rollDieFor(current) : applyMove(current, chooseMove(current, level));
+      if (timesOut) {
+        const count = (room.timeouts[color] ?? 0) + 1;
+        room.timeouts[color] = count;
+        if (count >= MAX_TIMEOUTS) {
+          room.game = forfeit(current, color);
+          this.touch(room);
+          return;
+        }
+        room.autoplay = color;
+      }
+      room.game = current.phase === 'roll' ? this.rollFor(room, current) : applyMove(current, chooseMove(current, level));
       this.touch(room);
     }, delay);
   }
@@ -330,8 +600,9 @@ export class RoomManager {
         kind: seat.kind,
         name: this.seatName(room, color),
         botLevel: seat.kind === 'bot' ? seat.level : undefined,
-        connected: seat.kind === 'bot' || !!member?.socketId,
+        connected: seat.kind === 'bot' || !!(room.shared ? room.members.get(room.hostToken)?.socketId : member?.socketId),
         isHost: seat.kind === 'human' && seat.token === room.hostToken,
+        stakeIssue: room.wager && seat.kind === 'human' ? this.stakeIssue(room.wager, member?.userId) : null,
       };
     });
     const seatedTokens = new Set(
@@ -354,7 +625,81 @@ export class RoomManager {
         const seat = room.seats[c];
         return seat.kind === 'human' && room.rematchVotes.has(seat.token);
       }),
+      turnTimer: room.deadline ? { endsIn: Math.max(0, room.deadline.at - Date.now()), duration: TURN_TIME_MS } : null,
+      timeouts: room.timeouts,
+      autoplay: room.autoplay,
+      stake: room.stake ? this.stakeView(room.stake) : null,
+      wager: room.wager?.id ?? null,
+      matched: !!room.quick,
+      shared: !!room.shared,
+      fair: room.game && room.fair?.gameId === room.game.id ? publicFair(room.fair, room.game.phase === 'over') : null,
     };
+  }
+
+  private stakeIssue(table: StakeTable, userId: number | undefined): 'guest' | 'funds' | null {
+    if (!userId) return 'guest';
+    return getWallet(userId)[table.currency] < table.stake ? 'funds' : null;
+  }
+
+  private stakeView(stake: RoomStakeState) {
+    const { pot, prize } = potSplit(stake.table.stake, Object.keys(stake.players).length, stake.share);
+    return {
+      table: stake.table.id,
+      currency: stake.table.currency,
+      stake: stake.table.stake,
+      pot,
+      prize,
+      payout: stake.payout,
+    };
+  }
+
+  /** Keeps a staked game (players, every action and die, seed) for inspection. */
+  private archive(room: Room, game: GameState, reason: string) {
+    if (!room.stake) return;
+    const stake = room.stake;
+    try {
+      archiveGame({
+        id: `ludo-${game.id}`,
+        game: 'ludo',
+        potId: stake.potId,
+        players: game.players.map((p) => ({ seat: p.color, userId: stake.players[p.color] ?? null, name: this.seatName(room, p.color) })),
+        moves: game.history,
+        rolls: room.fair?.gameId === game.id ? room.fair.rolls : null,
+        diceSeed: room.fair?.gameId === game.id ? room.fair.seed : null,
+        diceCommit: room.fair?.gameId === game.id ? room.fair.commit : null,
+        winner: game.winners[0] ?? null,
+        reason,
+        startedAt: room.startedAt ?? null,
+        endedAt: Date.now(),
+      });
+    } catch (err) {
+      console.error('Archivage de la partie impossible', err);
+    }
+  }
+
+  /** Pays the pot to the winner of a staked game, once. */
+  private settleStake(room: Room, game: GameState) {
+    const stake = room.stake;
+    if (!stake || stake.payout) return;
+    const winner = game.winners.find((c) => stake.players[c]);
+    try {
+      if (!winner) {
+        refundPot(stake.potId);
+        stake.payout = { winner: null, amount: 0 };
+        return;
+      }
+      const { prize } = potSplit(stake.table.stake, Object.keys(stake.players).length, stake.share);
+      settlePot(stake.potId, stake.players[winner]!, prize);
+      stake.payout = { winner: this.seatName(room, winner), amount: prize };
+    } catch (err) {
+      console.error('Impossible de régler la cagnotte, remboursement des mises', err);
+      try {
+        refundPot(stake.potId);
+        stake.payout = { winner: null, amount: 0 };
+      } catch (refundErr) {
+        console.error('Remboursement impossible : il sera fait au prochain démarrage', refundErr);
+      }
+    }
   }
 
   /** The color a member is still playing in the current game, if any. */
@@ -384,7 +729,8 @@ export class RoomManager {
     const game = room.game;
     if (!game || game.phase === 'over') throw new RoomError("Aucune partie en cours.");
     const seat = room.seats[game.players[game.current].color];
-    if (seat.kind !== 'human' || seat.token !== token) throw new RoomError("Ce n'est pas ton tour.");
+    const yours = room.shared ? token === room.hostToken && !room.abandoned : seat.kind === 'human' && seat.token === token;
+    if (seat.kind !== 'human' || !yours) throw new RoomError("Ce n'est pas ton tour.");
     return game;
   }
 
@@ -419,6 +765,8 @@ export class RoomManager {
     if (!game || game.phase !== 'over' || room.recordedGame === game.id) return;
     room.recordedGame = game.id;
     room.results.clear();
+    this.settleStake(room, game);
+    this.archive(room, game, game.forfeited.length ? 'forfait' : 'fin');
     const opponentKind = (color: Color): OpponentKind => {
       const seat = room.seats[color];
       return seat.kind === 'bot' ? { kind: 'bot', level: seat.level } : { kind: 'human', online: true };
@@ -428,7 +776,7 @@ export class RoomManager {
       const member = seat.kind === 'human' ? room.members.get(seat.token) : undefined;
       if (!member?.userId) continue;
       try {
-        const summary = recordOnlineGame(member.userId, game, color, opponentKind);
+        const summary = recordOnlineGame(member.userId, game, color, opponentKind, !!room.stake);
         if (summary) room.results.set(member.token, summary);
       } catch (err) {
         console.error('Impossible de créditer la partie', err);
@@ -443,8 +791,4 @@ export class RoomManager {
     this.onChange(room);
     this.botsReact(room);
   }
-}
-
-function rollDieFor(game: GameState): GameState {
-  return rollDice(game, rollDie());
 }

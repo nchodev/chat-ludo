@@ -2,9 +2,14 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { CoinAmount } from '@/components/Coins';
+import { usePreviousPage } from '@/lib/navigation';
+import { REFERRAL } from '@ludo/engine';
 import { login, register, useProfile } from '@/lib/profile';
+import { storedReferrer } from '@/lib/referral';
+import { BackButton } from '@/components/BackButton';
+import { Icon } from '@/components/Icons';
 
 type Mode = 'register' | 'login';
 
@@ -14,8 +19,18 @@ export default function AccountPage() {
   const [mode, setMode] = useState<Mode>('register');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const previous = usePreviousPage();
+  const cameFromGame = !!previous && !/^\/(\?|$)|^\/profil/.test(previous.path);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const [referrer, setReferrer] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('mode') === 'login') setMode('login');
+    setReferrer(storedReferrer());
+  }, []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -23,7 +38,9 @@ export default function AccountPage() {
     setBusy(true);
     try {
       await (mode === 'register' ? register : login)(username.trim(), password);
-      router.push('/profil');
+      // Signing in from a game page (e.g. to stake): go straight back to it.
+      if (cameFromGame) router.back();
+      else router.push('/?tab=profile');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur inattendue.');
     } finally {
@@ -36,9 +53,11 @@ export default function AccountPage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-5 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-10">
       <header className="flex items-center gap-3">
-        <Link href="/" className="icon-btn" aria-label="Accueil">
-          ←
-        </Link>
+        {previous ? (
+          <BackButton onClick={() => router.back()} label={`Retour : ${previous.name}`} text={previous.name} />
+        ) : (
+          <BackButton href="/" label="Retour à l’accueil" text="Accueil" />
+        )}
         <h1 className="flex-1 text-2xl font-bold">Mon compte</h1>
       </header>
 
@@ -47,7 +66,7 @@ export default function AccountPage() {
           <p>
             Tu es connecté en tant que <strong>{session.username}</strong>.
           </p>
-          <Link href="/profil" className="btn btn-primary mt-4">
+          <Link href="/?tab=profile" className="btn btn-primary mt-4">
             Voir mon profil
           </Link>
         </section>
@@ -85,23 +104,58 @@ export default function AccountPage() {
             </label>
             <label className="flex flex-col gap-1.5">
               <span className="text-sm font-semibold text-white/70">Mot de passe</span>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-                minLength={mode === 'register' ? 6 : undefined}
-                required
-                className="rounded-2xl bg-black/25 px-4 py-3 text-lg outline-none ring-white/40 focus:ring-2"
-              />
+              <span className="relative flex">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  minLength={mode === 'register' ? 6 : undefined}
+                  required
+                  className="w-full rounded-2xl bg-black/25 py-3 pr-14 pl-4 text-lg outline-none ring-white/40 focus:ring-2"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                  aria-pressed={showPassword}
+                  className="absolute inset-y-0 right-1 my-auto grid size-11 place-items-center rounded-full text-white/60 active:bg-white/10"
+                >
+                  {showPassword ? <Icon.EyeOff size={22} /> : <Icon.Eye size={22} />}
+                </button>
+              </span>
             </label>
             {mode === 'register' && (
               <p className="text-xs text-white/50">3 à 16 caractères pour le pseudo, au moins 6 pour le mot de passe.</p>
+            )}
+            {mode === 'register' && referrer && (
+              <p className="flex items-center gap-2 rounded-xl bg-[#00a884]/15 p-3 text-sm text-[#d1d7db]">
+                <Icon.Gift size={18} className="shrink-0 text-[#00a884]" />
+                <span>
+                  Invité par <strong>{referrer}</strong> : {REFERRAL.newcomerCoins} pièces offertes après tes {REFERRAL.gamesNeeded} premières parties en ligne.
+                </span>
+              </p>
             )}
             {error && <p className="pop-in rounded-xl bg-red-500/20 p-3 text-center text-sm font-medium text-red-200">{error}</p>}
             <button type="submit" disabled={busy} className="btn btn-primary mt-1">
               {busy ? 'Un instant…' : mode === 'register' ? 'Créer mon compte' : 'Me connecter'}
             </button>
+            {mode === 'register' && (
+              <p className="text-center text-xs leading-relaxed text-white/50">
+                En créant un compte, tu acceptes les{' '}
+                <Link href="/conditions" className="font-semibold text-[#00a884]">
+                  conditions d’utilisation
+                </Link>{' '}
+                et la{' '}
+                <Link href="/confidentialite" className="font-semibold text-[#00a884]">
+                  politique de confidentialité
+                </Link>
+                .
+              </p>
+            )}
           </form>
 
           <section className="card p-4 text-sm text-white/70">

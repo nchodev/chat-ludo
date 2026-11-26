@@ -19,8 +19,11 @@ import {
   newProfile,
   normalizeProfile,
   nextLoginStreak,
+  recordDraughtsGame,
   recordGame,
   rollDice,
+  weekOf,
+  weeklyQuests,
   setAppearance,
   type GameState,
 } from './index';
@@ -163,5 +166,41 @@ describe('progression', () => {
     expect(next.summary.achievements.map((a) => a.id)).not.toContain('wins_50');
     expect(p.appearance.board).toBe('classic');
     if (!p.owned.includes('pawn:crown')) expect(p.appearance.pawn).toBe('board');
+  });
+});
+
+describe('weekly quests', () => {
+  it('resets on Monday (UTC)', () => {
+    expect(weekOf('2026-10-05')).toBe('2026-10-05');
+    expect(weekOf('2026-10-09')).toBe('2026-10-05');
+    expect(weekOf('2026-10-11')).toBe('2026-10-05');
+    expect(weekOf('2026-10-12')).toBe('2026-10-12');
+  });
+
+  it('picks three distinct quests, the same all week', () => {
+    const quests = weeklyQuests('2026-10-05');
+    expect(quests).toHaveLength(3);
+    expect(new Set(quests.map((q) => q.id)).size).toBe(3);
+    expect(weeklyQuests('2026-10-05').map((q) => q.id)).toEqual(quests.map((q) => q.id));
+  });
+
+  it('counts draughts games and pays a quest once', () => {
+    let week = '';
+    for (let d = 0; d < 400 && !week; d += 7) {
+      const day = new Date(Date.UTC(2026, 0, 5 + d)).toISOString().slice(0, 10);
+      if (weeklyQuests(day).some((q) => q.id === 'w_dames5')) week = day;
+    }
+    expect(week).not.toBe('');
+    let p = newProfile();
+    let paid = 0;
+    for (let i = 0; i < 7; i++) {
+      const r = recordDraughtsGame(p, { gameId: `d${i}`, won: false, captures: 0, online: true }, week)!;
+      paid += r.summary.quests.filter((q) => q.id === 'w_dames5').length;
+      p = r.profile;
+    }
+    expect(paid).toBe(1);
+    expect(p.weekly.done).toContain('w_dames5');
+    expect(recordDraughtsGame(p, { gameId: 'd0', won: true, captures: 0, online: true }, week)).toBeNull();
+    expect(normalizeProfile(JSON.parse(JSON.stringify(p))).weekly).toEqual(p.weekly);
   });
 });

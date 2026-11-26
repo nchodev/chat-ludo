@@ -4,6 +4,7 @@ import { BASE, FINISHED, type BotLevel, type Color } from '@ludo/engine';
 import { BOT_LEVEL_LABEL } from '@/lib/labels';
 import type { Bubble } from '@/lib/reactions';
 import { DEFAULT_BOARD_THEME, type Palette } from '@/lib/themes';
+import { Icon } from './Icons';
 
 export interface SeatMeta {
   color: Color;
@@ -88,7 +89,7 @@ export function Avatar({
         background: `radial-gradient(circle at 35% 30%, ${palette[color].main}, ${palette[color].dark})`,
       }}
     >
-      {seat?.isBot ? '🤖' : (seat?.name.trim()[0]?.toUpperCase() ?? '?')}
+      {seat?.isBot ? <Icon.Robot size={size * 0.58} /> : (seat?.name.trim()[0]?.toUpperCase() ?? '?')}
     </span>
   );
 }

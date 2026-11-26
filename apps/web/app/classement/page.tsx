@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useProfile } from '@/lib/profile';
+import { BackButton } from '@/components/BackButton';
 
 interface Row {
   rank: number;
@@ -37,9 +38,7 @@ export default function LeaderboardPage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-4 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-10">
       <header className="flex items-center gap-3">
-        <Link href="/" className="icon-btn" aria-label="Accueil">
-          ←
-        </Link>
+        <BackButton href="/ludo" label="Retour à Ludo" text="Ludo" />
         <h1 className="flex-1 text-2xl font-bold">Classement</h1>
       </header>
 

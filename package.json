@@ -7,13 +7,15 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -n web,server -c blue,magenta \"npm run dev -w @ludo/web\" \"npm run dev -w @ludo/server\"",
+    "dev": "concurrently -n web,server,admin -c blue,magenta,green \"npm run dev -w @ludo/web\" \"npm run dev -w @ludo/server\" \"npm run dev -w @ludo/admin\"",
     "dev:web": "npm run dev -w @ludo/web",
     "dev:server": "npm run dev -w @ludo/server",
-    "build": "npm run build -w @ludo/web",
-    "start": "concurrently -n web,server -c blue,magenta \"npm run start -w @ludo/web\" \"npm run start -w @ludo/server\"",
+    "build": "npm run build -w @ludo/web && npm run build -w @ludo/admin",
+    "start": "concurrently -n web,server,admin -c blue,magenta,green \"npm run start -w @ludo/web\" \"npm run start -w @ludo/server\" \"npm run start -w @ludo/admin\"",
     "test": "npm test -w @ludo/engine",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:admin": "npm run dev -w @ludo/admin",
+    "admin:create": "npm run admin:create -w @ludo/server --"
   },
   "devDependencies": {
     "concurrently": "^10.0.5",

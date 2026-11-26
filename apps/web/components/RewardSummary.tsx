@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { ACHIEVEMENTS, DAILY_CHALLENGES, levelInfo, type GameState, type ProgressSummary } from '@ludo/engine';
+import { ACHIEVEMENTS, DAILY_CHALLENGES, WEEKLY_QUESTS, levelInfo, type GameState, type ProgressSummary } from '@ludo/engine';
 import { CoinAmount, CoinIcon } from './Coins';
 import { LevelBar } from './LevelBar';
 import { rewardLineLabel } from '@/lib/labels';
@@ -34,6 +34,10 @@ export function RewardSummary({ state, summary }: { state: GameState; summary: P
     ...summary.challenges.map((c) => {
       const challenge = DAILY_CHALLENGES.find((d) => d.id === c.id);
       return { label: `Défi réussi : ${challenge?.label ?? c.id}`, coins: c.coins };
+    }),
+    ...(summary.quests ?? []).map((q) => {
+      const quest = WEEKLY_QUESTS.find((w) => w.id === q.id);
+      return { label: `Défi de la semaine : ${quest?.label ?? q.id}`, coins: q.coins };
     }),
     ...summary.achievements.map((a) => {
       const achievement = ACHIEVEMENTS.find((x) => x.id === a.id);
