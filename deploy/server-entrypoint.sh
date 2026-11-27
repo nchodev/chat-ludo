@@ -3,7 +3,10 @@
 # database if the volume is empty, then streams every change to R2 while the server runs.
 set -e
 
-START="npm run start -w @ludo/server"
+# Node runs directly (not through npm) so the stop signal reaches the server, which then saves
+# every room before exiting (see shutdown() in apps/server/src/index.ts).
+cd /app/apps/server
+START="node --import tsx src/index.ts"
 
 if [ -z "$LITESTREAM_BUCKET" ]; then
   echo "LITESTREAM_BUCKET absent : base de données NON sauvegardée."
