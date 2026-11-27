@@ -7,7 +7,8 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "admin:create": "tsx src/create-admin.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "DATABASE_PATH=:memory: tsx --test src/*.test.ts"
   },
   "dependencies": {
     "@ludo/engine": "*",

@@ -29,7 +29,19 @@ import {
   stakeConfig,
 } from '@ludo/engine';
 import { recordOnlineGame } from './api';
-import { archiveGame, forfeitPot, getWallet, notAdultConfirmed, openPot, overPremiumCap, refundPot, settlePot } from './db';
+import {
+  archiveGame,
+  deleteLiveRoom,
+  forfeitPot,
+  getWallet,
+  listLiveRooms,
+  notAdultConfirmed,
+  openPot,
+  overPremiumCap,
+  refundPot,
+  saveLiveRoom,
+  settlePot,
+} from './db';
 import { newFairSeed, nextFairRoll, publicFair, type FairSeed } from './fair';
 import { LINKED_PLAYERS_ERROR, linkedPlayers, originOf, type Origin } from './identity';
 
@@ -87,6 +99,13 @@ export interface Room {
   startedAt?: number;
 }
 
+/** A room as saved in the database: no timers or connections, Maps and Sets as arrays. */
+type SavedRoom = Omit<Room, 'members' | 'results' | 'rematchVotes' | 'timer' | 'deadline'> & {
+  members: Omit<Member, 'socketId' | 'forfeitTimer' | 'lastReactionAt'>[];
+  results: [string, ProgressSummary][];
+  rematchVotes: string[];
+};
+
 interface RoomStakeState {
   potId: string;
   table: StakeTable;
@@ -112,7 +131,15 @@ const BOT_DELAY_MS = 1000;
 const BOT_REACTION_DELAY_MS = 700;
 /** Free seats are handed out so that the first two players face each other diagonally. */
 const SEAT_PREFERENCE: Color[] = ['red', 'yellow', 'green', 'blue'];
-const DISCONNECT_FORFEIT_MS = 30_000;
+/** Mobile networks drop often: a player has this long to come back before losing. */
+export const DISCONNECT_FORFEIT_MS = 60_000;
+/** After a restart, extra time on the turn in progress so its player has time to reconnect. */
+const RESTART_TURN_GRACE_MS = 20_000;
+/**
+ * Shape of a saved room. Bump it when Room or GameState change in a way old saves can't be read:
+ * rooms saved with another version are dropped at startup and their stakes refunded.
+ */
+const LIVE_ROOM_VERSION = 1;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 /** 4 players and a few spectators. */
 const MAX_MEMBERS = 12;
@@ -160,6 +187,7 @@ export class RoomManager {
       autoplay: null,
     };
     this.rooms.set(code, room);
+    this.persist(room);
     return { room, token };
   }
 
@@ -252,27 +280,94 @@ export class RoomManager {
 
   disconnect(room: Room, token: string) {
     const member = room.members.get(token);
-    if (member && room.shared && token === room.hostToken) {
+    if (member) {
       member.socketId = null;
+      this.armForfeit(room, member);
+    }
+    this.touch(room);
+  }
+
+  /** Starts the countdown that makes an offline player lose (or the computer take over a shared device). */
+  private armForfeit(room: Room, member: Member) {
+    const token = member.token;
+    if (room.shared) {
+      // The other seats of a shared device never connect: only the device itself can drop.
+      if (token !== room.hostToken) return;
       clearTimeout(member.forfeitTimer);
       member.forfeitTimer = setTimeout(() => {
         if (member.socketId || !room.game || room.game.phase === 'over') return;
         room.abandoned = true;
         this.touch(room);
       }, DISCONNECT_FORFEIT_MS);
-    } else if (member) {
-      member.socketId = null;
-      if (this.playingColor(room, token)) {
-        clearTimeout(member.forfeitTimer);
-        member.forfeitTimer = setTimeout(() => {
-          const color = this.playingColor(room, token);
-          if (member.socketId || !color || !room.game) return;
-          room.game = forfeit(room.game, color);
-          this.touch(room);
-        }, DISCONNECT_FORFEIT_MS);
+      return;
+    }
+    if (!this.playingColor(room, token)) return;
+    clearTimeout(member.forfeitTimer);
+    member.forfeitTimer = setTimeout(() => {
+      const color = this.playingColor(room, token);
+      if (member.socketId || !color || !room.game) return;
+      room.game = forfeit(room.game, color);
+      this.touch(room);
+    }, DISCONNECT_FORFEIT_MS);
+  }
+
+  /** Saves every room now, e.g. right before the server stops. */
+  persistAll() {
+    for (const room of this.rooms.values()) this.persist(room);
+  }
+
+  /**
+   * Reloads the rooms saved before a restart, with every member offline until their app
+   * reconnects. Returns the pots of the games resumed, which must not be refunded.
+   */
+  restore(): Set<string> {
+    const pots = new Set<string>();
+    for (const row of listLiveRooms('ludo')) {
+      try {
+        if (row.version !== LIVE_ROOM_VERSION) throw new Error(`format ${row.version} au lieu de ${LIVE_ROOM_VERSION}`);
+        const saved = JSON.parse(row.data) as SavedRoom;
+        if (saved.code !== row.code || !saved.seats || !saved.rules || !Array.isArray(saved.members)) throw new Error('données incomplètes');
+        const room: Room = {
+          ...saved,
+          members: new Map(saved.members.map((m) => [m.token, { ...m, socketId: null }])),
+          results: new Map(saved.results),
+          rematchVotes: new Set(saved.rematchVotes),
+          timer: null,
+          deadline: null,
+          lastActivity: Date.now(),
+        };
+        this.rooms.set(room.code, room);
+        if (room.stake && !room.stake.payout) pots.add(room.stake.potId);
+      } catch (err) {
+        console.error(`Salon ${row.code} non repris :`, err);
+        deleteLiveRoom('ludo', row.code);
       }
     }
-    this.touch(room);
+    for (const room of [...this.rooms.values()]) {
+      for (const member of room.members.values()) this.armForfeit(room, member);
+      const game = room.game;
+      if (game && game.phase !== 'over') {
+        room.deadline = { key: `${game.id}:${game.history.length}`, at: Date.now() + TURN_TIME_MS + RESTART_TURN_GRACE_MS };
+      }
+      this.touch(room);
+    }
+    return pots;
+  }
+
+  private persist(room: Room) {
+    if (this.rooms.get(room.code) !== room) return;
+    try {
+      const { members, results, rematchVotes, timer: _timer, deadline: _deadline, ...rest } = room;
+      const saved: SavedRoom = {
+        ...rest,
+        members: [...members.values()].map(({ token, name, userId, origin }) => ({ token, name, userId, origin })),
+        results: [...results],
+        rematchVotes: [...rematchVotes],
+      };
+      saveLiveRoom('ludo', room.code, LIVE_ROOM_VERSION, JSON.stringify(saved));
+    } catch (err) {
+      console.error(`Sauvegarde du salon ${room.code} impossible`, err);
+    }
   }
 
   /**
@@ -321,7 +416,13 @@ export class RoomManager {
         console.error('Remboursement impossible', err);
       }
     }
+    for (const member of room.members.values()) clearTimeout(member.forfeitTimer);
     this.rooms.delete(room.code);
+    try {
+      deleteLiveRoom('ludo', room.code);
+    } catch (err) {
+      console.error(`Suppression du salon ${room.code} sauvegardé impossible`, err);
+    }
   }
 
   takeSeat(room: Room, token: string, color: Color) {
@@ -788,6 +889,7 @@ export class RoomManager {
     room.lastActivity = Date.now();
     this.recordResults(room);
     this.schedule(room);
+    this.persist(room);
     this.onChange(room);
     this.botsReact(room);
   }

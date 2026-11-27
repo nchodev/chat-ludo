@@ -997,7 +997,11 @@ setInterval(() => {
 }, 60_000);
 
 deleteExpiredSessions();
-const refunded = refundOpenPots();
+// Games saved before the restart go on; only the stakes of games that can't be resumed are given back.
+const resumedPots = new Set([...rooms.restore(), ...draughts.restore()]);
+const resumed = rooms.all().length + draughts.all().length;
+if (resumed) console.log(`${resumed} salon(s) repris après le redémarrage`);
+const refunded = refundOpenPots(resumedPots);
 if (refunded) console.log(`${refunded} cagnotte(s) de parties interrompues remboursée(s)`);
 setInterval(deleteExpiredSessions, 60 * 60_000);
 void settleStaleDeposits();
@@ -1006,3 +1010,23 @@ setInterval(() => void settleStaleDeposits(), 5 * 60_000);
 httpServer.listen(PORT, () => {
   console.log(`Serveur LuChat prêt sur http://localhost:${PORT}`);
 });
+
+/**
+ * On a deploy or restart: saves every room one last time (clocks charged to the second) and stops.
+ * Players' apps reconnect on their own to the new server, which resumes the games.
+ */
+let stopping = false;
+function shutdown(signal: string) {
+  if (stopping) return;
+  stopping = true;
+  console.log(`${signal} reçu : sauvegarde des salons avant l’arrêt`);
+  try {
+    rooms.persistAll();
+    draughts.persistAll();
+  } catch (err) {
+    console.error('Sauvegarde finale impossible', err);
+  }
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

@@ -26,7 +26,18 @@ import {
   type StakeTable,
 } from '@ludo/engine';
 import { recordDuelOnlineGame } from './api';
-import { archiveGame, getWallet, notAdultConfirmed, openPot, overPremiumCap, refundPot, settlePot } from './db';
+import {
+  archiveGame,
+  deleteLiveRoom,
+  getWallet,
+  listLiveRooms,
+  notAdultConfirmed,
+  openPot,
+  overPremiumCap,
+  refundPot,
+  saveLiveRoom,
+  settlePot,
+} from './db';
 import { LINKED_PLAYERS_ERROR, originOf, sameOrigin, type Origin } from './identity';
 
 /** A game resigned or abandoned before this many moves doesn't count, so friends can't farm quick games. */
@@ -136,8 +147,19 @@ export interface DuelRoom {
   lastActivity: number;
 }
 
+/** A room as saved in the database: no timers or connections, Sets as arrays. */
+type SavedDuelRoom = Omit<DuelRoom, 'members' | 'rematchVotes' | 'timer'> & {
+  members: Omit<DuelMember, 'socketId' | 'forfeitTimer'>[];
+  rematchVotes: string[];
+  /** When it was saved: the side to move is charged the time it had used by then. */
+  savedAt: number;
+};
+
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const DISCONNECT_FORFEIT_MS = 30_000;
+/** Mobile networks drop often: a player has this long to come back before losing. */
+export const DUEL_DISCONNECT_FORFEIT_MS = 60_000;
+/** Shape of a saved room; bump it when old saves can't be read (they are then dropped and refunded). */
+const LIVE_ROOM_VERSION = 1;
 const MAX_MEMBERS = 10;
 const MAX_ROOMS = 5000;
 const MATCHED_ROOM_ERROR = 'Partie avec mise : relance une recherche depuis la partie rapide.';
@@ -180,6 +202,7 @@ export class DuelManager {
       lastActivity: Date.now(),
     };
     this.rooms.set(code, room);
+    this.persist(room);
     return { room, token };
   }
 
@@ -219,15 +242,81 @@ export class DuelManager {
     const member = room.members.get(token);
     if (!member) return;
     member.socketId = null;
-    if (this.sideOf(room, token) && this.playing(room)) {
-      clearTimeout(member.forfeitTimer);
-      member.forfeitTimer = setTimeout(() => {
-        const side = this.sideOf(room, token);
-        if (member.socketId || !side || !this.playing(room)) return;
-        this.finish(room, otherSide(side), 'abandon');
-      }, DISCONNECT_FORFEIT_MS);
-    }
+    this.armForfeit(room, member);
     this.touch(room);
+  }
+
+  /** Starts the countdown that makes an offline player lose the game in progress. */
+  private armForfeit(room: DuelRoom, member: DuelMember) {
+    const token = member.token;
+    if (!this.sideOf(room, token) || !this.playing(room)) return;
+    clearTimeout(member.forfeitTimer);
+    member.forfeitTimer = setTimeout(() => {
+      const side = this.sideOf(room, token);
+      if (member.socketId || !side || !this.playing(room)) return;
+      this.finish(room, otherSide(side), 'abandon');
+    }, DUEL_DISCONNECT_FORFEIT_MS);
+  }
+
+  /** Saves every room now, e.g. right before the server stops. */
+  persistAll() {
+    for (const room of this.rooms.values()) this.persist(room);
+  }
+
+  /**
+   * Reloads the rooms saved before a restart, with every member offline until their app
+   * reconnects; clocks don't run while the server is down. Returns the pots of the games resumed.
+   */
+  restore(): Set<string> {
+    const pots = new Set<string>();
+    const now = Date.now();
+    for (const row of listLiveRooms('duel')) {
+      try {
+        if (row.version !== LIVE_ROOM_VERSION) throw new Error(`format ${row.version} au lieu de ${LIVE_ROOM_VERSION}`);
+        const { savedAt, ...saved } = JSON.parse(row.data) as SavedDuelRoom;
+        if (saved.code !== row.code || !RULES[saved.kind] || !Array.isArray(saved.members) || !Array.isArray(saved.players)) {
+          throw new Error('données incomplètes');
+        }
+        const room: DuelRoom = {
+          ...saved,
+          members: new Map(saved.members.map((m) => [m.token, { ...m, socketId: null }])),
+          rematchVotes: new Set(saved.rematchVotes),
+          timer: null,
+          lastActivity: now,
+        };
+        if (room.game?.status === 'playing' && room.clock) {
+          const turn = room.game.turn;
+          room.clock[turn] = Math.max(0, room.clock[turn] - Math.max(0, savedAt - room.turnStartedAt));
+          room.turnStartedAt = now;
+        }
+        this.rooms.set(room.code, room);
+        if (room.stake && !room.stake.payout) pots.add(room.stake.potId);
+      } catch (err) {
+        console.error(`Salon ${row.code} non repris :`, err);
+        deleteLiveRoom('duel', row.code);
+      }
+    }
+    for (const room of [...this.rooms.values()]) {
+      for (const member of room.members.values()) this.armForfeit(room, member);
+      this.touch(room);
+    }
+    return pots;
+  }
+
+  private persist(room: DuelRoom) {
+    if (this.rooms.get(room.code) !== room) return;
+    try {
+      const { members, rematchVotes, timer: _timer, ...rest } = room;
+      const saved: SavedDuelRoom = {
+        ...rest,
+        members: [...members.values()].map(({ token, name, userId, origin }) => ({ token, name, userId, origin })),
+        rematchVotes: [...rematchVotes],
+        savedAt: Date.now(),
+      };
+      saveLiveRoom('duel', room.code, LIVE_ROOM_VERSION, JSON.stringify(saved));
+    } catch (err) {
+      console.error(`Sauvegarde du salon ${room.code} impossible`, err);
+    }
   }
 
   /** Leaving during a game loses it. */
@@ -268,6 +357,11 @@ export class DuelManager {
       }
     }
     this.rooms.delete(room.code);
+    try {
+      deleteLiveRoom('duel', room.code);
+    } catch (err) {
+      console.error(`Suppression du salon ${room.code} sauvegardé impossible`, err);
+    }
   }
 
   setWager(room: DuelRoom, token: string, table: StakeTable | null) {
@@ -573,6 +667,7 @@ export class DuelManager {
     this.settle(room);
     this.record(room);
     this.schedule(room);
+    this.persist(room);
     this.onChange(room);
   }
 }

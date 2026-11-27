@@ -12,7 +12,7 @@
     "dev:server": "npm run dev -w @ludo/server",
     "build": "npm run build -w @ludo/web && npm run build -w @ludo/admin",
     "start": "concurrently -n web,server,admin -c blue,magenta,green \"npm run start -w @ludo/web\" \"npm run start -w @ludo/server\" \"npm run start -w @ludo/admin\"",
-    "test": "npm test -w @ludo/engine",
+    "test": "npm test -w @ludo/engine && npm test -w @ludo/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:admin": "npm run dev -w @ludo/admin",
     "admin:create": "npm run admin:create -w @ludo/server --"

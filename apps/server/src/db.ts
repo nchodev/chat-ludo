@@ -165,6 +165,15 @@ db.exec(`
     created_at INTEGER NOT NULL,
     closed_at INTEGER
   );
+  -- Rooms in play, saved after every change so a restart can resume them (see rooms.ts, duel-rooms.ts).
+  CREATE TABLE IF NOT EXISTS live_rooms (
+    kind TEXT NOT NULL,
+    code TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    data TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (kind, code)
+  );
 `);
 
 const userColumns = (db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).map((c) => c.name);
@@ -880,9 +889,30 @@ export function referralEarnings(userId: number): number {
 }
 
 /** Pots of games lost to a server restart: their players get their stakes back. */
-export function refundOpenPots(): number {
+/** Gives back the stakes of games that can't go on; `keep` are the pots of rooms resumed after a restart. */
+export function refundOpenPots(keep: ReadonlySet<string> = new Set()): number {
   const open = db.prepare("SELECT id FROM stake_pots WHERE status = 'open'").all() as { id: string }[];
-  return open.filter(({ id }) => refundPot(id)).length;
+  return open.filter(({ id }) => !keep.has(id) && refundPot(id)).length;
+}
+
+export type LiveRoomKind = 'ludo' | 'duel';
+
+export interface LiveRoomRow {
+  code: string;
+  version: number;
+  data: string;
+}
+
+export function saveLiveRoom(kind: LiveRoomKind, code: string, version: number, data: string) {
+  db.prepare('INSERT OR REPLACE INTO live_rooms (kind, code, version, data, updated_at) VALUES (?, ?, ?, ?, ?)').run(kind, code, version, data, Date.now());
+}
+
+export function deleteLiveRoom(kind: LiveRoomKind, code: string) {
+  db.prepare('DELETE FROM live_rooms WHERE kind = ? AND code = ?').run(kind, code);
+}
+
+export function listLiveRooms(kind: LiveRoomKind): LiveRoomRow[] {
+  return db.prepare('SELECT code, version, data FROM live_rooms WHERE kind = ?').all(kind) as unknown as LiveRoomRow[];
 }
 
 export interface LedgerLine {
