@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '@/components/Icons';
 import { LOCK_DELAYS, appLockSupported, disableAppLock, enableAppLock, setAppLockDelay, useAppLock } from '@/lib/appLock';
+import { useLang } from '@/lib/i18n';
 
 /** Profile card: turns the fingerprint lock on or off, and sets how soon it locks again. */
 export function AppLockSetting({ username }: { username: string }) {
@@ -10,6 +11,7 @@ export function AppLockSetting({ username }: { username: string }) {
   const [supported, setSupported] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { t } = useLang();
 
   useEffect(() => {
     void appLockSupported().then(setSupported);
@@ -28,8 +30,8 @@ export function AppLockSetting({ username }: { username: string }) {
       } catch (err) {
         setError(
           err instanceof DOMException && (err.name === 'NotAllowedError' || err.name === 'AbortError')
-            ? 'Activation annulée.'
-            : 'Impossible d’enregistrer l’empreinte sur ce téléphone.',
+            ? t('Activation annulée.', 'Activation cancelled.')
+            : t('Impossible d’enregistrer l’empreinte sur ce téléphone.', 'Could not register a fingerprint on this phone.'),
         );
       }
     }
@@ -43,13 +45,13 @@ export function AppLockSetting({ username }: { username: string }) {
           <Icon.Fingerprint size={24} />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[16px] font-medium">Verrouillage par empreinte</span>
+          <span className="block text-[16px] font-medium">{t('Verrouillage par empreinte', 'Fingerprint lock')}</span>
           <span className="block text-[13px] text-[#8696a0]">
             {!supported
-              ? 'Pas de capteur d’empreinte disponible sur ce téléphone ou ce navigateur.'
+              ? t('Pas de capteur d’empreinte disponible sur ce téléphone ou ce navigateur.', 'No fingerprint sensor available on this phone or browser.')
               : enabled
-                ? 'Ton empreinte est demandée pour ouvrir LuChat.'
-                : 'Demande ton empreinte pour ouvrir LuChat.'}
+                ? t('Ton empreinte est demandée pour ouvrir LuChat.', 'Your fingerprint is needed to open LuChat.')
+                : t('Demande ton empreinte pour ouvrir LuChat.', 'Ask for your fingerprint to open LuChat.')}
           </span>
         </span>
         {supported && (
@@ -57,7 +59,7 @@ export function AppLockSetting({ username }: { username: string }) {
             type="button"
             role="switch"
             aria-checked={enabled}
-            aria-label={enabled ? 'Désactiver le verrouillage par empreinte' : 'Activer le verrouillage par empreinte'}
+            aria-label={enabled ? t('Désactiver le verrouillage par empreinte', 'Turn off fingerprint lock') : t('Activer le verrouillage par empreinte', 'Turn on fingerprint lock')}
             disabled={busy}
             onClick={() => void toggle()}
             className={`relative h-8 w-14 shrink-0 rounded-full transition disabled:opacity-60 ${enabled ? 'bg-[#00a884]' : 'bg-white/15'}`}
@@ -68,7 +70,7 @@ export function AppLockSetting({ username }: { username: string }) {
       </div>
       {supported && enabled && (
         <label className="flex items-center justify-between gap-3 border-t border-white/[0.06] pt-3 text-[14px]">
-          <span>Verrouiller</span>
+          <span>{t('Verrouiller', 'Lock')}</span>
           <select
             value={delayMs}
             onChange={(e) => setAppLockDelay(Number(e.target.value))}
@@ -76,7 +78,7 @@ export function AppLockSetting({ username }: { username: string }) {
           >
             {LOCK_DELAYS.map((d) => (
               <option key={d.ms} value={d.ms}>
-                {d.label}
+                {t(d.label[0], d.label[1])}
               </option>
             ))}
           </select>

@@ -3,17 +3,15 @@
 import Link from 'next/link';
 import { useState, type ComponentType } from 'react';
 import { ACHIEVEMENTS, levelInfo } from '@ludo/engine';
-import { AppLockSetting } from './AppLockSetting';
 import { CoinAmount, CoinIcon } from './Coins';
 import { DailyCard } from './DailyCard';
 import { Icon } from './Icons';
 import { LevelBar } from './LevelBar';
 import { ProfileQrSheet } from './ProfileQr';
 import { QrScanner } from './QrScanner';
-import { logout, useProfile } from '@/lib/profile';
+import { useProfile } from '@/lib/profile';
 import { useReferralRules } from '@/lib/referral';
 import { useLang } from '@/lib/i18n';
-import { LanguageSwitcher } from './LanguageSwitcher';
 
 type IconComponent = ComponentType<{ size?: number; className?: string }>;
 
@@ -78,9 +76,6 @@ export function ProfileView() {
                 {t('Scanner', 'Scan')}
               </button>
             </div>
-            <button type="button" onClick={() => void logout()} className="btn btn-ghost text-sm">
-              {t('Se déconnecter', 'Sign out')}
-            </button>
           </>
         ) : (
           <div className="rounded-2xl bg-emerald-400/10 p-3 text-sm text-emerald-100">
@@ -142,9 +137,18 @@ export function ProfileView() {
         <Icon.ChevronRight className="shrink-0 text-[#8696a0]" />
       </Link>
 
-      <LanguageSwitcher />
-
-      {session && <AppLockSetting username={session.username} />}
+      <Link href="/reglages" className="flex items-center gap-4 rounded-[28px] bg-[#1f2c33] p-4 transition active:scale-[0.99]">
+        <span className="grid size-11 shrink-0 place-items-center rounded-full bg-[#53bdeb]/15 text-[#53bdeb]">
+          <Icon.Settings size={24} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[16px] font-medium">{t('Réglages', 'Settings')}</span>
+          <span className="block truncate text-[13px] text-[#8696a0]">
+            {t('Langue, sons, notifications, apparence, sécurité', 'Language, sounds, notifications, appearance, security')}
+          </span>
+        </span>
+        <Icon.ChevronRight className="shrink-0 text-[#8696a0]" />
+      </Link>
 
       <DailyCard />
 
@@ -190,14 +194,6 @@ export function ProfileView() {
         {t('Voir le classement', 'See the leaderboard')}
       </Link>
 
-      <nav className="flex flex-wrap justify-center gap-x-5 gap-y-1 pt-1 text-[12.5px] text-[#8696a0]">
-        <Link href="/conditions" className="underline-offset-2 hover:underline">
-          {t('Conditions d’utilisation', 'Terms of use')}
-        </Link>
-        <Link href="/confidentialite" className="underline-offset-2 hover:underline">
-          {t('Confidentialité', 'Privacy')}
-        </Link>
-      </nav>
 
       {session && <ProfileQrSheet open={qrOpen} username={session.username} onClose={() => setQrOpen(false)} />}
       {scanning && <QrScanner onClose={() => setScanning(false)} />}

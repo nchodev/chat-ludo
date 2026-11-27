@@ -612,6 +612,15 @@ export default function HomePage() {
         <div className="flex min-w-0 items-center justify-end gap-1">
           <CoinBadge />
           <NotificationBell />
+          {tab === 'profile' && (
+            <Link
+              href="/reglages"
+              aria-label={t('Réglages', 'Settings')}
+              className="grid size-10 place-items-center rounded-full text-[#aebac1] transition active:bg-white/10"
+            >
+              <Icon.Settings size={24} />
+            </Link>
+          )}
         </div>
       </header>
 

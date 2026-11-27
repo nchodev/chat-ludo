@@ -13,11 +13,12 @@ import { APP_LOCK_STORAGE_KEY as STORAGE_KEY, LOCKED_ATTRIBUTE } from './appLock
  */
 
 
+/** Delays to lock again; `label` is [French, English]. */
 export const LOCK_DELAYS = [
-  { ms: 0, label: 'Immédiatement' },
-  { ms: 60_000, label: 'Après 1 minute' },
-  { ms: 5 * 60_000, label: 'Après 5 minutes' },
-  { ms: 30 * 60_000, label: 'Après 30 minutes' },
+  { ms: 0, label: ['Immédiatement', 'Immediately'] },
+  { ms: 60_000, label: ['Après 1 minute', 'After 1 minute'] },
+  { ms: 5 * 60_000, label: ['Après 5 minutes', 'After 5 minutes'] },
+  { ms: 30 * 60_000, label: ['Après 30 minutes', 'After 30 minutes'] },
 ] as const;
 
 interface LockSettings {
