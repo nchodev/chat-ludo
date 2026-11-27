@@ -663,26 +663,43 @@ export function setPaymentProviderRef(reference: string, providerRef: string) {
   db.prepare('UPDATE payments SET provider_ref = ?, updated_at = ? WHERE reference = ?').run(providerRef, Date.now(), reference);
 }
 
-/** Credits a pending deposit Wave confirmed as paid; false if unknown or already closed (a replayed notification). */
-export function confirmDeposit(reference: string, providerRef: string): boolean {
+/**
+ * Credits a pending deposit Wave confirmed as paid; false if unknown or already closed (a replayed notification).
+ * `by` is set when an admin credits it by hand after checking the payment in the Wave Business account.
+ */
+export function confirmDeposit(reference: string, providerRef: string, by?: { adminId: number; note: string }): boolean {
   return inTransaction(() => {
     const row = db.prepare("SELECT user_id, amount FROM payments WHERE reference = ? AND kind = 'deposit' AND status = 'pending'").get(reference) as
       | { user_id: number; amount: number }
       | undefined;
     if (!row) return false;
-    db.prepare("UPDATE payments SET status = 'succeeded', provider_ref = ?, updated_at = ? WHERE reference = ?").run(providerRef, Date.now(), reference);
+    db.prepare("UPDATE payments SET status = 'succeeded', provider_ref = ?, note = ?, admin_id = ?, updated_at = ? WHERE reference = ?").run(
+      providerRef,
+      by?.note ?? null,
+      by?.adminId ?? null,
+      Date.now(),
+      reference,
+    );
     moveCoins(row.user_id, 'premium', row.amount, 'deposit', reference);
     rewardReferralDeposit(row.user_id, row.amount);
     return true;
   });
 }
 
-/** Closes a pending deposit that was never paid (expired or refused by Wave). */
-export function failDeposit(reference: string, note: string): boolean {
+/** Closes a pending deposit that was never paid (expired or refused by Wave, or closed by an admin). */
+export function failDeposit(reference: string, note: string, adminId: number | null = null): boolean {
   const result = db
-    .prepare("UPDATE payments SET status = 'failed', note = ?, updated_at = ? WHERE reference = ? AND kind = 'deposit' AND status = 'pending'")
-    .run(note, Date.now(), reference);
+    .prepare("UPDATE payments SET status = 'failed', note = ?, admin_id = ?, updated_at = ? WHERE reference = ? AND kind = 'deposit' AND status = 'pending'")
+    .run(note, adminId, Date.now(), reference);
   return result.changes > 0;
+}
+
+/** Another payment already credited with this Wave transaction id, if any (a transaction is credited once). */
+export function paymentWithProviderRef(providerRef: string, except: string): string | null {
+  const row = db
+    .prepare("SELECT reference FROM payments WHERE provider_ref = ? AND status = 'succeeded' AND reference <> ? LIMIT 1")
+    .get(providerRef, except) as { reference: string } | undefined;
+  return row?.reference ?? null;
 }
 
 /** Pending deposits opened before `before`: their Wave session has expired, they must be settled. */

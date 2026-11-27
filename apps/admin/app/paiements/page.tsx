@@ -27,10 +27,12 @@ interface Payment {
   admin: string | null;
 }
 
-type View = 'pending' | 'paid' | 'refused' | 'deposits' | 'settings';
+type View = 'pending' | 'pendingDeposits' | 'paid' | 'refused' | 'deposits' | 'settings';
+type Action = { kind: 'pay' | 'refuse' | 'confirmDeposit' | 'failDeposit'; payment: Payment };
 
 const QUERY: Record<Exclude<View, 'settings'>, string> = {
   pending: 'kind=withdrawal&status=pending',
+  pendingDeposits: 'kind=deposit&status=pending',
   paid: 'kind=withdrawal&status=succeeded',
   refused: 'kind=withdrawal&status=failed',
   deposits: 'kind=deposit',
@@ -47,17 +49,18 @@ const fcfa = (n: number) => `${fmt(n)} F`;
 export default function PaymentsPage() {
   const [view, setView] = useState<View>('pending');
   const [page, setPage] = useState(0);
-  const [action, setAction] = useState<{ kind: 'pay' | 'refuse'; payment: Payment } | null>(null);
+  const [action, setAction] = useState<Action | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const { data, error, loading, reload } = useAdminData<{ payments: Payment[]; total: number; pageSize: number }>(
     view === 'settings' ? null : `/admin/payments?${QUERY[view]}&page=${page}`,
-    view === 'pending' ? 20_000 : undefined,
+    view === 'pending' || view === 'pendingDeposits' ? 20_000 : undefined,
   );
 
   return (
     <>
       <PageHeader
         title="Paiements Wave"
-        subtitle="Les retraits s’envoient à la main depuis le compte Wave Business, puis se confirment ici."
+        subtitle="Les retraits s’envoient à la main depuis le compte Wave Business, puis se confirment ici. Les dépôts restés en attente se vérifient ou se règlent ici."
         actions={
           view !== 'settings' && (
             <button type="button" className="btn btn-tonal" onClick={() => void reload()}>
@@ -76,6 +79,7 @@ export default function PaymentsPage() {
           }}
           options={[
             { id: 'pending', label: 'Retraits à traiter' },
+            { id: 'pendingDeposits', label: 'Dépôts en attente' },
             { id: 'paid', label: 'Payés' },
             { id: 'refused', label: 'Refusés' },
             { id: 'deposits', label: 'Dépôts' },
@@ -83,10 +87,36 @@ export default function PaymentsPage() {
           ]}
         />
       </div>
-      {view === 'settings' ? <PaymentSettings /> : <PaymentsTable view={view} page={page} setPage={setPage} data={data} error={error} loading={loading} onAction={setAction} />}
+      {notice && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl bg-accent/10 px-4 py-3 text-[14px]">
+          <span>{notice}</span>
+          <button type="button" className="btn btn-ghost" onClick={() => setNotice(null)}>
+            OK
+          </button>
+        </div>
+      )}
+      {view === 'settings' ? (
+        <PaymentSettings />
+      ) : (
+        <PaymentsTable
+          view={view}
+          page={page}
+          setPage={setPage}
+          data={data}
+          error={error}
+          loading={loading}
+          onAction={setAction}
+          onChecked={(message) => {
+            setNotice(message);
+            void reload();
+          }}
+        />
+      )}
 
       {action?.kind === 'pay' && <PayDialog payment={action.payment} onClose={() => setAction(null)} onDone={reload} />}
       {action?.kind === 'refuse' && <RefuseDialog payment={action.payment} onClose={() => setAction(null)} onDone={reload} />}
+      {action?.kind === 'confirmDeposit' && <ConfirmDepositDialog payment={action.payment} onClose={() => setAction(null)} onDone={reload} />}
+      {action?.kind === 'failDeposit' && <FailDepositDialog payment={action.payment} onClose={() => setAction(null)} onDone={reload} />}
     </>
   );
 }
@@ -99,6 +129,7 @@ function PaymentsTable({
   error,
   loading,
   onAction,
+  onChecked,
 }: {
   view: Exclude<View, 'settings'>;
   page: number;
@@ -106,8 +137,28 @@ function PaymentsTable({
   data: { payments: Payment[]; total: number; pageSize: number } | null;
   error: string | null;
   loading: boolean;
-  onAction: (action: { kind: 'pay' | 'refuse'; payment: Payment }) => void;
+  onAction: (action: Action) => void;
+  onChecked: (message: string) => void;
 }) {
+  const depositView = view === 'deposits' || view === 'pendingDeposits';
+  const [checking, setChecking] = useState<string | null>(null);
+  const check = async (p: Payment) => {
+    setChecking(p.reference);
+    try {
+      const { status } = await adminApi<{ status: Payment['status'] }>('/admin/payments/deposit/check', { reference: p.reference });
+      onChecked(
+        status === 'succeeded'
+          ? `Wave confirme le paiement : ${fcfa(p.amount)} crédités à ${p.username}.`
+          : status === 'failed'
+            ? `Wave indique que le dépôt de ${p.username} n’a pas abouti : il est clos.`
+            : `Wave n’a pas encore reçu le paiement de ${p.username} : le dépôt reste en attente.`,
+      );
+    } catch (err) {
+      onChecked(err instanceof Error ? err.message : 'Vérification impossible.');
+    } finally {
+      setChecking(null);
+    }
+  };
   return (
     <>
       {error && <ErrorBox>{error}</ErrorBox>}
@@ -123,8 +174,8 @@ function PaymentsTable({
                   <th>Joueur</th>
                   <th>Numéro Wave</th>
                   <th className="text-right">Montant</th>
-                  <th>{view === 'pending' ? 'Historique du joueur' : view === 'deposits' ? 'État' : 'Traitement'}</th>
-                  {view === 'pending' && <th />}
+                  <th>{view === 'pending' ? 'Historique du joueur' : depositView ? 'État' : 'Traitement'}</th>
+                  {(view === 'pending' || depositView) && <th />}
                 </tr>
               </thead>
               <tbody>
@@ -132,7 +183,7 @@ function PaymentsTable({
                   <tr key={p.reference}>
                     <td className="whitespace-nowrap text-muted">
                       {when(p.createdAt)}
-                      {view === 'pending' && <span className="block text-[12px]">{ago(p.createdAt)}</span>}
+                      {(view === 'pending' || p.status === 'pending') && <span className="block text-[12px]">{ago(p.createdAt)}</span>}
                     </td>
                     <td>
                       <Link href={`/joueurs/${p.userId}`} className="text-info hover:underline">
@@ -158,11 +209,12 @@ function PaymentsTable({
                             </span>
                           )}
                         </span>
-                      ) : view === 'deposits' ? (
+                      ) : depositView ? (
                         <span className="flex flex-wrap items-center gap-1.5">
                           <Badge tone={DEPOSIT_STATUS[p.status].tone}>{DEPOSIT_STATUS[p.status].label}</Badge>
                           {p.note && <span className="text-muted">{p.note}</span>}
                           {p.status === 'succeeded' && p.providerRef && <span className="text-muted tabular-nums">{p.providerRef}</span>}
+                          {p.admin && p.status !== 'pending' && <span className="text-[12px] text-muted">· par {p.admin}</span>}
                         </span>
                       ) : (
                         <span className="text-muted">
@@ -173,6 +225,25 @@ function PaymentsTable({
                         </span>
                       )}
                     </td>
+                    {depositView && (
+                      <td className="whitespace-nowrap text-right">
+                        {p.status === 'pending' && (
+                          <>
+                            <button type="button" className="btn btn-tonal" disabled={checking === p.reference} onClick={() => void check(p)}>
+                              <Icon.Refresh size={18} />
+                              {checking === p.reference ? 'Vérification…' : 'Vérifier sur Wave'}
+                            </button>{' '}
+                            <button type="button" className="btn btn-primary" onClick={() => onAction({ kind: 'confirmDeposit', payment: p })}>
+                              <Icon.Check size={18} />
+                              Crédité
+                            </button>{' '}
+                            <button type="button" className="btn btn-ghost" onClick={() => onAction({ kind: 'failDeposit', payment: p })}>
+                              Non abouti
+                            </button>
+                          </>
+                        )}
+                      </td>
+                    )}
                     {view === 'pending' && (
                       <td className="whitespace-nowrap text-right">
                         <button type="button" className="btn btn-primary" onClick={() => onAction({ kind: 'pay', payment: p })}>
@@ -191,7 +262,13 @@ function PaymentsTable({
           </div>
         ) : (
           <Empty icon={<Icon.Wallet size={28} />}>
-            {view === 'pending' ? 'Aucun retrait à traiter.' : view === 'deposits' ? 'Aucun dépôt.' : 'Aucun retrait.'}
+            {view === 'pending'
+              ? 'Aucun retrait à traiter.'
+              : view === 'pendingDeposits'
+                ? 'Aucun dépôt en attente.'
+                : view === 'deposits'
+                  ? 'Aucun dépôt.'
+                  : 'Aucun retrait.'}
           </Empty>
         )}
       </div>
@@ -316,6 +393,109 @@ function RefuseDialog({ payment, onClose, onDone }: { payment: Payment; onClose:
           </button>
           <button type="submit" className="btn btn-danger" disabled={busy}>
             Refuser et rembourser
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function ConfirmDepositDialog({ payment, onClose, onDone }: { payment: Payment; onClose: () => void; onDone: () => void }) {
+  const [transactionId, setTransactionId] = useState('');
+  const [reason, setReason] = useState('');
+  const { busy, error, run } = useSubmit(onDone, onClose);
+  return (
+    <Dialog open title={`Créditer le dépôt de ${payment.username} ?`} onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void run('/admin/payments/deposit/confirm', { reference: payment.reference, transactionId, reason });
+        }}
+        className="flex flex-col gap-4"
+      >
+        <div className="rounded-2xl bg-warn/10 px-4 py-3 text-[14px] leading-relaxed">
+          <strong>{fmt(payment.amount)} pièces Premium</strong> seront ajoutées au compte du joueur tout de suite, et un éventuel bonus de
+          parrainage sera versé. Ne le fais qu’après avoir vu, dans le compte Wave Business, un paiement reçu de{' '}
+          <strong className="tabular-nums">{payment.phone}</strong> d’un montant de <strong>{fcfa(payment.amount)}</strong>.
+        </div>
+        <p className="text-[13px] text-muted">
+          Astuce : essaie d’abord « Vérifier sur Wave », qui règle le dépôt automatiquement si Wave a bien reçu l’argent.
+        </p>
+        <label>
+          <span className="label">Identifiant de la transaction Wave</span>
+          <input
+            className="field"
+            required
+            maxLength={64}
+            value={transactionId}
+            onChange={(e) => setTransactionId(e.target.value.trim())}
+            autoFocus
+            placeholder="Ex. : T_ABCD1234EFGH"
+          />
+        </label>
+        <label>
+          <span className="label">Motif</span>
+          <input
+            className="field"
+            required
+            minLength={3}
+            maxLength={200}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Ex. : paiement reçu, notification Wave perdue"
+          />
+        </label>
+        {error && <ErrorBox>{error}</ErrorBox>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            Annuler
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={busy || transactionId.length < 4 || reason.trim().length < 3}>
+            <Icon.Check size={18} />
+            Créditer {fcfa(payment.amount)}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function FailDepositDialog({ payment, onClose, onDone }: { payment: Payment; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState('');
+  const { busy, error, run } = useSubmit(onDone, onClose);
+  return (
+    <Dialog open title={`Marquer le dépôt de ${payment.username} comme non abouti ?`} onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void run('/admin/payments/deposit/fail', { reference: payment.reference, reason });
+        }}
+        className="flex flex-col gap-4"
+      >
+        <p className="text-[14px] leading-relaxed text-muted">
+          Le dépôt de {fcfa(payment.amount)} est clos sans rien créditer. À utiliser seulement si le joueur n’a pas payé. S’il paie quand même
+          plus tard, il faudra le créditer à la main.
+        </p>
+        <label>
+          <span className="label">Motif</span>
+          <input
+            className="field"
+            required
+            minLength={3}
+            maxLength={200}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            autoFocus
+            placeholder="Ex. : paiement abandonné par le joueur"
+          />
+        </label>
+        {error && <ErrorBox>{error}</ErrorBox>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            Annuler
+          </button>
+          <button type="submit" className="btn btn-danger" disabled={busy}>
+            Marquer non abouti
           </button>
         </div>
       </form>

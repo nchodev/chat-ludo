@@ -63,6 +63,9 @@ export const ACTION_LABEL: Record<string, string> = {
   'admin.password': 'Mot de passe changé',
   'withdrawal.paid': 'Retrait payé sur Wave',
   'withdrawal.refused': 'Retrait refusé',
+  'deposit.checked': 'Dépôt revérifié auprès de Wave',
+  'deposit.confirmed': 'Dépôt crédité à la main',
+  'deposit.failed': 'Dépôt marqué non abouti',
   'wave_phone.reset': 'Numéro Wave délié',
 };
 

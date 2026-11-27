@@ -300,6 +300,20 @@ async function syncDeposit(deposit: db.Payment) {
   applySession(await waveRequest<CheckoutSession>('GET', `/v1/checkout/sessions/${encodeURIComponent(deposit.providerRef)}`));
 }
 
+/**
+ * An admin asks Wave again about a pending deposit; it is credited or closed if Wave has settled it.
+ * Returns the deposit's status afterwards.
+ */
+export async function recheckDeposit(reference: string): Promise<db.PaymentStatus> {
+  const deposit = db.getPayment(reference);
+  if (!deposit || deposit.kind !== 'deposit') throw new PaymentError(404, 'Dépôt introuvable.');
+  if (deposit.status !== 'pending') return deposit.status;
+  if (!waveConfigured()) throw new PaymentError(503, 'Wave n’est pas configuré : vérification impossible.');
+  if (!deposit.providerRef) throw new PaymentError(409, 'Ce dépôt n’a jamais été ouvert chez Wave : il n’y a rien à vérifier.');
+  await syncDeposit(deposit);
+  return db.getPayment(reference)!.status;
+}
+
 /** The player is back from Wave: where is their deposit? */
 export async function checkDeposit(userId: number, rawReference: unknown) {
   const deposit = typeof rawReference === 'string' ? db.getPayment(rawReference) : null;

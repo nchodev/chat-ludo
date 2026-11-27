@@ -22,7 +22,9 @@ import {
   PAYMENT_AMOUNT_BOUNDS,
   PAYMENT_PROVIDERS,
   isPaymentProvider,
+  PaymentError,
   paymentSettings,
+  recheckDeposit,
   setPaymentSettings,
   validateProviderSettings,
   waveConfigured,
@@ -121,6 +123,20 @@ function pendingWithdrawal(rawReference: unknown): db.Payment {
   if (!payment || payment.kind !== 'withdrawal') throw new HttpError(404, 'Retrait introuvable.');
   if (payment.status !== 'pending') throw new HttpError(409, 'Ce retrait a déjà été traité.');
   return payment;
+}
+
+function pendingDeposit(rawReference: unknown): db.Payment {
+  const payment = typeof rawReference === 'string' ? db.getPayment(rawReference) : null;
+  if (!payment || payment.kind !== 'deposit') throw new HttpError(404, 'Dépôt introuvable.');
+  if (payment.status !== 'pending') throw new HttpError(409, 'Ce dépôt a déjà été traité.');
+  return payment;
+}
+
+/** Wave transaction id typed by an admin. */
+function transactionIdField(value: unknown): string {
+  const id = typeof value === 'string' ? value.trim() : '';
+  if (!/^[\w.:-]{4,64}$/.test(id)) throw new HttpError(400, 'Indique l’identifiant de la transaction Wave (lettres et chiffres).');
+  return id;
 }
 
 const PROVIDER_CONFIGURED: Record<PaymentProvider, () => boolean> = { wave: waveConfigured };
@@ -370,6 +386,58 @@ export function registerAdminRoutes(runtime: AdminRuntime) {
         reason,
       });
       runtime.notifyWithdrawal(withdrawal.userId, withdrawal.amount, false, reason);
+      return { ok: true };
+    },
+
+    /** Asks Wave again about a pending deposit: credited or closed if Wave has settled it, unchanged otherwise. */
+    'POST /api/admin/payments/deposit/check': async (req, body) => {
+      const admin = requireAdmin(req);
+      const deposit = pendingDeposit(body.reference);
+      let status: db.PaymentStatus;
+      try {
+        status = await recheckDeposit(deposit.reference);
+      } catch (err) {
+        if (err instanceof PaymentError) throw new HttpError(err.status, err.message);
+        console.error(`Vérification Wave du dépôt ${deposit.reference} impossible`, err);
+        throw new HttpError(502, 'Wave ne répond pas. Réessaie dans quelques minutes.');
+      }
+      if (status !== 'pending') {
+        db.logAdminAction(admin.id, 'deposit.checked', `user:${deposit.userId}`, { reference: deposit.reference, amount: deposit.amount, status });
+      }
+      return { status };
+    },
+
+    /**
+     * Credits a pending deposit by hand, once the admin has seen the payment in the Wave Business
+     * account (e.g. Wave's notification never arrived). The Wave transaction id is recorded, once.
+     */
+    'POST /api/admin/payments/deposit/confirm': (req, body) => {
+      const admin = requireAdmin(req);
+      const deposit = pendingDeposit(body.reference);
+      const transactionId = transactionIdField(body.transactionId);
+      const reason = requiredReason(body.reason);
+      const used = db.paymentWithProviderRef(transactionId, deposit.reference);
+      if (used) throw new HttpError(409, `Cette transaction Wave a déjà été créditée (paiement ${used}).`);
+      if (!db.confirmDeposit(deposit.reference, transactionId, { adminId: admin.id, note: reason })) {
+        throw new HttpError(409, 'Ce dépôt a déjà été traité.');
+      }
+      db.logAdminAction(admin.id, 'deposit.confirmed', `user:${deposit.userId}`, {
+        reference: deposit.reference,
+        amount: deposit.amount,
+        phone: deposit.phone,
+        transactionId,
+        reason,
+      });
+      return { ok: true };
+    },
+
+    /** Closes a pending deposit that was never paid; nothing is credited. */
+    'POST /api/admin/payments/deposit/fail': (req, body) => {
+      const admin = requireAdmin(req);
+      const deposit = pendingDeposit(body.reference);
+      const reason = requiredReason(body.reason);
+      if (!db.failDeposit(deposit.reference, reason, admin.id)) throw new HttpError(409, 'Ce dépôt a déjà été traité.');
+      db.logAdminAction(admin.id, 'deposit.failed', `user:${deposit.userId}`, { reference: deposit.reference, amount: deposit.amount, phone: deposit.phone, reason });
       return { ok: true };
     },
 
