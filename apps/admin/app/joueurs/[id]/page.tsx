@@ -47,7 +47,7 @@ export default function PlayerPage() {
             {player.bannedAt ? <Badge tone="danger">Suspendu</Badge> : player.online ? <Badge tone="accent">En ligne</Badge> : <Badge>Hors ligne</Badge>}
           </div>
           <p className="mt-0.5 text-[13.5px] text-muted">
-            Compte n° {player.id} · inscrit le {day(player.createdAt)}
+            {player.fullName ?? 'Nom complet non renseigné'} · compte n° {player.id} · inscrit le {day(player.createdAt)}
           </p>
           {player.bannedAt && (
             <p className="mt-1.5 text-[13.5px] text-danger">

@@ -6,7 +6,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { CoinAmount } from '@/components/Coins';
 import { usePreviousPage } from '@/lib/navigation';
 import { REFERRAL } from '@ludo/engine';
-import { login, register, useProfile } from '@/lib/profile';
+import { login, register, saveFullName, useProfile } from '@/lib/profile';
 import { storedReferrer } from '@/lib/referral';
 import { BackButton } from '@/components/BackButton';
 import { Icon } from '@/components/Icons';
@@ -15,8 +15,9 @@ type Mode = 'register' | 'login';
 
 export default function AccountPage() {
   const router = useRouter();
-  const { profile, session } = useProfile();
+  const { profile, session, fullName: savedFullName } = useProfile();
   const [mode, setMode] = useState<Mode>('register');
+  const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -37,7 +38,8 @@ export default function AccountPage() {
     setError(null);
     setBusy(true);
     try {
-      await (mode === 'register' ? register : login)(username.trim(), password);
+      if (mode === 'register') await register(username.trim(), password, fullName.trim());
+      else await login(username.trim(), password);
       // Signing in from a game page (e.g. to stake): go straight back to it.
       if (cameFromGame) router.back();
       else router.push('/?tab=profile');
@@ -66,6 +68,7 @@ export default function AccountPage() {
           <p>
             Tu es connecté en tant que <strong>{session.username}</strong>.
           </p>
+          <FullNameCard saved={savedFullName} />
           <Link href="/?tab=profile" className="btn btn-primary mt-4">
             Voir mon profil
           </Link>
@@ -89,6 +92,22 @@ export default function AccountPage() {
           </div>
 
           <form onSubmit={submit} className="card flex flex-col gap-3 p-4">
+            {mode === 'register' && (
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-semibold text-white/70">Nom complet</span>
+                <input
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  autoComplete="name"
+                  autoCapitalize="words"
+                  maxLength={60}
+                  required
+                  placeholder="Ex : Awa Diop"
+                  className="rounded-2xl bg-black/25 px-4 py-3 text-lg outline-none ring-white/40 placeholder:text-white/30 focus:ring-2"
+                />
+                <span className="text-xs text-white/50">Ton prénom et ton nom. Il reste privé : les autres joueurs ne voient que ton pseudo.</span>
+              </label>
+            )}
             <label className="flex flex-col gap-1.5">
               <span className="text-sm font-semibold text-white/70">Pseudo</span>
               <input
@@ -175,5 +194,78 @@ export default function AccountPage() {
         </>
       )}
     </main>
+  );
+}
+
+/** Shows the account's real name, or asks for it if the account was made before it was required. */
+function FullNameCard({ saved }: { saved: string | null }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const asking = !saved || editing;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await saveFullName(value.trim());
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur inattendue.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!asking) {
+    return (
+      <p className="mt-3 flex items-center justify-center gap-2 text-sm text-white/70">
+        <span>
+          Nom complet : <strong className="text-white">{saved}</strong>
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            setValue(saved ?? '');
+            setEditing(true);
+          }}
+          className="font-semibold text-[#00a884]"
+        >
+          Modifier
+        </button>
+      </p>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-4 flex flex-col gap-2 rounded-2xl bg-black/20 p-3 text-left">
+      <label className="flex flex-col gap-1.5">
+        <span className="text-sm font-semibold text-white/70">{saved ? 'Corriger ton nom complet' : 'Ajoute ton nom complet'}</span>
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          autoComplete="name"
+          autoCapitalize="words"
+          maxLength={60}
+          required
+          placeholder="Ex : Awa Diop"
+          className="rounded-2xl bg-black/25 px-4 py-3 text-lg outline-none ring-white/40 placeholder:text-white/30 focus:ring-2"
+        />
+        <span className="text-xs text-white/50">Privé : les autres joueurs ne voient que ton pseudo.</span>
+      </label>
+      {error && <p className="rounded-xl bg-red-500/20 p-2 text-center text-sm font-medium text-red-200">{error}</p>}
+      <div className="flex gap-2">
+        {saved && (
+          <button type="button" onClick={() => setEditing(false)} className="btn btn-ghost flex-1">
+            Annuler
+          </button>
+        )}
+        <button type="submit" disabled={busy} className="btn btn-primary flex-1">
+          {busy ? 'Un instant…' : 'Enregistrer'}
+        </button>
+      </div>
+    </form>
   );
 }

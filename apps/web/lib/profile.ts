@@ -45,6 +45,8 @@ export interface ProfileState {
   premiumCoins: number;
   /** The account certified being 18 or older, which anything Premium requires. */
   adultConfirmed: boolean;
+  /** Real name of the signed-in account (only its owner sees it); null if not given yet. */
+  fullName: string | null;
 }
 
 interface AccountResponse {
@@ -54,9 +56,10 @@ interface AccountResponse {
   rank: number;
   premiumCoins?: number;
   adultConfirmed?: boolean;
+  fullName?: string | null;
 }
 
-const INITIAL: ProfileState = { ready: false, profile: newProfile(), session: null, rank: null, premiumCoins: 0, adultConfirmed: false };
+const INITIAL: ProfileState = { ready: false, profile: newProfile(), session: null, rank: null, premiumCoins: 0, adultConfirmed: false, fullName: null };
 let state = INITIAL;
 const listeners = new Set<() => void>();
 
@@ -94,14 +97,14 @@ function applyAccount(res: AccountResponse) {
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   localStorage.setItem(ACCOUNT_CACHE_KEY, JSON.stringify(profile));
   localStorage.setItem(ADULT_CACHE_KEY, res.adultConfirmed ? '1' : '0');
-  set({ session, profile, rank: res.rank, premiumCoins: res.premiumCoins ?? 0, adultConfirmed: res.adultConfirmed ?? false, ready: true });
+  set({ session, profile, rank: res.rank, premiumCoins: res.premiumCoins ?? 0, adultConfirmed: res.adultConfirmed ?? false, fullName: res.fullName ?? null, ready: true });
 }
 
 function signOutLocally() {
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(ACCOUNT_CACHE_KEY);
   localStorage.removeItem(ADULT_CACHE_KEY);
-  set({ session: null, rank: null, premiumCoins: 0, adultConfirmed: false, profile: loadGuest(), ready: true });
+  set({ session: null, rank: null, premiumCoins: 0, adultConfirmed: false, fullName: null, profile: loadGuest(), ready: true });
 }
 
 let initialized = false;
@@ -161,10 +164,10 @@ export function getSessionToken(): string | undefined {
 /* Account                                                             */
 /* ------------------------------------------------------------------ */
 
-export async function register(username: string, password: string) {
+export async function register(username: string, password: string, fullName: string) {
   const referrer = storedReferrer();
   const res = await api<AccountResponse>('/register', {
-    body: { username, password, guestProfile: loadGuest(), device: deviceId(), ...(referrer && referrer !== username ? { referrer } : {}) },
+    body: { username, password, fullName, guestProfile: loadGuest(), device: deviceId(), ...(referrer && referrer !== username ? { referrer } : {}) },
   });
   clearReferrer();
   // The guest's progress now lives in the account; start the device's guest profile afresh.
@@ -174,6 +177,13 @@ export async function register(username: string, password: string) {
 
 export async function login(username: string, password: string) {
   applyAccount(await api<AccountResponse>('/login', { body: { username, password } }));
+}
+
+/** Adds or corrects the account's real name. */
+export async function saveFullName(fullName: string) {
+  const token = state.session?.token;
+  if (!token) throw new Error('Connecte-toi d’abord.');
+  applyAccount(await api<AccountResponse>('/account/name', { token, body: { fullName } }));
 }
 
 /** The player certifies being 18 or older; the server records it once for the account. */

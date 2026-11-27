@@ -120,8 +120,11 @@ export interface PublicProfile {
   premiumCoins: number;
   /** The player certified being 18 or older, which anything Premium requires. */
   adultConfirmed: boolean;
+  /** Real name, sent only to the player themselves; null for accounts made before it was asked. */
+  fullName: string | null;
 }
 
+/** The signed-in player's own account (never sent to other players: it holds their real name). */
 function publicProfile(user: db.User): PublicProfile {
   return {
     username: user.username,
@@ -129,7 +132,20 @@ function publicProfile(user: db.User): PublicProfile {
     rank: db.rankOf(user.id),
     premiumCoins: db.getWallet(user.id).premium,
     adultConfirmed: db.adultConfirmedAt(user.id) !== null,
+    fullName: db.fullNameOf(user.id),
   };
+}
+
+/** First name(s) and last name: letters of any alphabet, spaces, apostrophes, hyphens and dots. */
+const FULL_NAME_RE = /^\p{L}[\p{L}\p{M}'’.-]*( [\p{L}\p{M}'’.-]+)+$/u;
+const MAX_FULL_NAME = 60;
+
+function fullNameField(value: unknown): string {
+  const name = typeof value === 'string' ? value.normalize('NFKC').replace(/\s+/g, ' ').trim() : '';
+  if (name.length < 3 || name.length > MAX_FULL_NAME || !FULL_NAME_RE.test(name)) {
+    throw new HttpError(400, `Nom complet : ton prénom et ton nom, en lettres (${MAX_FULL_NAME} caractères au plus).`);
+  }
+  return name;
 }
 
 function newSession(userId: number): string {
@@ -711,11 +727,12 @@ const routes: Record<string, Handler> = {
       throw new HttpError(400, 'Pseudo : 3 à 16 caractères (lettres, chiffres, - ou _).');
     }
     if (password.length < MIN_PASSWORD) throw new HttpError(400, `Mot de passe : au moins ${MIN_PASSWORD} caractères.`);
+    const fullName = fullNameField(body.fullName);
     limit(registerLimiter, ip(req));
     if (db.usernameTaken(username)) throw new HttpError(409, 'Ce pseudo est déjà pris.');
 
     const profile = body.guestProfile ? importGuestProfile(body.guestProfile) : newProfile();
-    const user = db.createUser(username, await hashPassword(password), profile);
+    const user = db.createUser(username, await hashPassword(password), profile, fullName);
     const code = typeof body.referrer === 'string' ? body.referrer.normalize('NFKC').trim() : '';
     const referrer = REFERRAL_CODE.test(code) ? db.findUserByUsername(code) : null;
     const device = typeof body.device === 'string' && /^[\w-]{8,64}$/.test(body.device) ? body.device : '';
@@ -745,6 +762,13 @@ const routes: Record<string, Handler> = {
   },
 
   'GET /api/me': (req) => publicProfile(requireUser(req)),
+
+  /** Adds or corrects the player's real name (accounts made before it was asked have none). */
+  'POST /api/account/name': (req, body) => {
+    const user = requireUser(req);
+    db.setFullName(user.id, fullNameField(body.fullName));
+    return publicProfile(user);
+  },
 
   'POST /api/account/adult': (req, body) => {
     const user = requireUser(req);

@@ -32,7 +32,7 @@ export default function PlayersPage() {
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <label className="relative min-w-60 flex-1">
           <Icon.Search size={20} className="pointer-events-none absolute inset-y-0 left-3 my-auto text-muted" />
-          <input className="field pl-10" placeholder="Rechercher un pseudo" value={input} onChange={(e) => setInput(e.target.value)} />
+          <input className="field pl-10" placeholder="Rechercher un pseudo ou un nom" value={input} onChange={(e) => setInput(e.target.value)} />
         </label>
         <Segmented
           value={filter}
@@ -74,7 +74,10 @@ export default function PlayersPage() {
                           <Avatar name={p.username} size={34} />
                           {p.online && <span className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-surface bg-accent" title="En ligne" />}
                         </span>
-                        <span className="font-medium">{p.username}</span>
+                        <span className="flex flex-col">
+                          <span className="font-medium">{p.username}</span>
+                          {p.fullName && <span className="text-[12.5px] text-muted">{p.fullName}</span>}
+                        </span>
                       </Link>
                     </td>
                     <td className="whitespace-nowrap text-muted">{day(p.createdAt)}</td>

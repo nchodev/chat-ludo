@@ -179,6 +179,8 @@ db.exec(`
 const userColumns = (db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).map((c) => c.name);
 if (!userColumns.includes('banned_at')) db.exec('ALTER TABLE users ADD COLUMN banned_at INTEGER');
 if (!userColumns.includes('ban_reason')) db.exec('ALTER TABLE users ADD COLUMN ban_reason TEXT');
+// Real name given at sign-up; private (the player and the admins only). NULL for accounts made before.
+if (!userColumns.includes('full_name')) db.exec('ALTER TABLE users ADD COLUMN full_name TEXT');
 db.exec(`
   CREATE TABLE IF NOT EXISTS admins (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -992,11 +994,20 @@ function toUser(row: UserRow): User {
   return { id: row.id, username: row.username, profile: normalizeProfile(JSON.parse(row.profile)) };
 }
 
-export function createUser(username: string, passwordHash: string, profile: Profile): User {
+export function createUser(username: string, passwordHash: string, profile: Profile, fullName: string | null = null): User {
   const result = db
-    .prepare('INSERT INTO users (username, password_hash, profile, xp, wins, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(username, passwordHash, JSON.stringify(profile), profile.xp, profile.stats.wins, Date.now());
+    .prepare('INSERT INTO users (username, password_hash, profile, xp, wins, created_at, full_name) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(username, passwordHash, JSON.stringify(profile), profile.xp, profile.stats.wins, Date.now(), fullName);
   return { id: Number(result.lastInsertRowid), username, profile };
+}
+
+/** The player's real name, or null for an account made before it was asked. */
+export function fullNameOf(userId: number): string | null {
+  return (db.prepare('SELECT full_name FROM users WHERE id = ?').get(userId) as { full_name: string | null } | undefined)?.full_name ?? null;
+}
+
+export function setFullName(userId: number, fullName: string) {
+  db.prepare('UPDATE users SET full_name = ? WHERE id = ?').run(fullName, userId);
 }
 
 export function findUserForLogin(username: string): (User & { passwordHash: string; banned: boolean }) | null {
@@ -1753,6 +1764,7 @@ export function adjustCoins(userId: number, currency: Currency, delta: number, l
 export interface PlayerSummary {
   id: number;
   username: string;
+  fullName: string | null;
   createdAt: number;
   xp: number;
   wins: number;
@@ -1763,7 +1775,7 @@ export interface PlayerSummary {
   banReason: string | null;
 }
 
-const PLAYER_COLUMNS = `id, username, created_at AS createdAt, xp, wins,
+const PLAYER_COLUMNS = `id, username, full_name AS fullName, created_at AS createdAt, xp, wins,
   COALESCE(json_extract(profile, '$.stats.games'), 0) AS games,
   COALESCE(json_extract(profile, '$.coins'), 0) AS coins,
   premium_coins AS premiumCoins, banned_at AS bannedAt, ban_reason AS banReason`;
@@ -1775,8 +1787,9 @@ export function searchPlayers(options: { query?: string; banned?: boolean; offse
   const where: string[] = [];
   const params: (string | number)[] = [];
   if (options.query) {
-    where.push("username LIKE ? ESCAPE '\\'");
-    params.push(`%${options.query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+    where.push("(username LIKE ? ESCAPE '\\' OR full_name LIKE ? ESCAPE '\\')");
+    const pattern = `%${options.query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    params.push(pattern, pattern);
   }
   if (options.banned) where.push('banned_at IS NOT NULL');
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
