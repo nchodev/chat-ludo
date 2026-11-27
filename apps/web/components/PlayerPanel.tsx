@@ -2,6 +2,7 @@
 
 import { BASE, FINISHED, type BotLevel, type Color } from '@ludo/engine';
 import { BOT_LEVEL_LABEL } from '@/lib/labels';
+import { tr } from '@/lib/i18n';
 import type { Bubble } from '@/lib/reactions';
 import { DEFAULT_BOARD_THEME, type Palette } from '@/lib/themes';
 import { Icon } from './Icons';
@@ -111,14 +112,14 @@ export function PlayerPanel({
   const main = palette[color].main;
 
   const subtitle = forfeited
-    ? '🏳️ A quitté · perdu'
+    ? tr('🏳️ A quitté · perdu', '🏳️ Left · lost')
     : seat.isBot
-      ? `Ordi ${BOT_LEVEL_LABEL[seat.botLevel ?? 'medium'].toLowerCase()}`
+      ? tr(`Ordi ${BOT_LEVEL_LABEL[seat.botLevel ?? 'medium'].toLowerCase()}`, `${BOT_LEVEL_LABEL[seat.botLevel ?? 'medium']} computer`)
       : !seat.connected
-        ? 'Déconnecté'
+        ? tr('Déconnecté', 'Disconnected')
         : seat.isYou
-          ? 'Toi'
-          : 'Joueur';
+          ? tr('Toi', 'You')
+          : tr('Joueur', 'Player');
 
   return (
     <div

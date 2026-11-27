@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 import { CoinAmount } from '@/components/Coins';
 import { usePreviousPage } from '@/lib/navigation';
-import { REFERRAL } from '@ludo/engine';
 import { login, register, saveFullName, useProfile } from '@/lib/profile';
-import { storedReferrer } from '@/lib/referral';
+import { storedReferrer, useReferralRules } from '@/lib/referral';
+import { useLang } from '@/lib/i18n';
 import { BackButton } from '@/components/BackButton';
 import { Icon } from '@/components/Icons';
 
@@ -16,6 +16,8 @@ type Mode = 'register' | 'login';
 export default function AccountPage() {
   const router = useRouter();
   const { profile, session, fullName: savedFullName } = useProfile();
+  const { t } = useLang();
+  const referral = useReferralRules();
   const [mode, setMode] = useState<Mode>('register');
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
@@ -44,7 +46,7 @@ export default function AccountPage() {
       if (cameFromGame) router.back();
       else router.push('/?tab=profile');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur inattendue.');
+      setError(err instanceof Error ? err.message : t('Erreur inattendue.', 'Unexpected error.'));
     } finally {
       setBusy(false);
     }
@@ -56,21 +58,21 @@ export default function AccountPage() {
     <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-5 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-10">
       <header className="flex items-center gap-3">
         {previous ? (
-          <BackButton onClick={() => router.back()} label={`Retour : ${previous.name}`} text={previous.name} />
+          <BackButton onClick={() => router.back()} label={t(`Retour : ${previous.name}`, `Back: ${previous.name}`)} text={previous.name} />
         ) : (
-          <BackButton href="/" label="Retour à l’accueil" text="Accueil" />
+          <BackButton href="/" label={t('Retour à l’accueil', 'Back to home')} text={t('Accueil', 'Home')} />
         )}
-        <h1 className="flex-1 text-2xl font-bold">Mon compte</h1>
+        <h1 className="flex-1 text-2xl font-bold">{t('Mon compte', 'My account')}</h1>
       </header>
 
       {session ? (
         <section className="card p-4 text-center">
           <p>
-            Tu es connecté en tant que <strong>{session.username}</strong>.
+            {t('Tu es connecté en tant que', 'You are signed in as')} <strong>{session.username}</strong>.
           </p>
           <FullNameCard saved={savedFullName} />
           <Link href="/?tab=profile" className="btn btn-primary mt-4">
-            Voir mon profil
+            {t('Voir mon profil', 'See my profile')}
           </Link>
         </section>
       ) : (
@@ -86,7 +88,7 @@ export default function AccountPage() {
                 }}
                 className={`rounded-xl py-2.5 text-sm font-semibold transition ${mode === m ? 'bg-white text-slate-900 shadow' : 'text-white/70'}`}
               >
-                {m === 'register' ? 'Créer un compte' : 'Se connecter'}
+                {m === 'register' ? t('Créer un compte', 'Create an account') : t('Se connecter', 'Sign in')}
               </button>
             ))}
           </div>
@@ -94,7 +96,7 @@ export default function AccountPage() {
           <form onSubmit={submit} className="card flex flex-col gap-3 p-4">
             {mode === 'register' && (
               <label className="flex flex-col gap-1.5">
-                <span className="text-sm font-semibold text-white/70">Nom complet</span>
+                <span className="text-sm font-semibold text-white/70">{t('Nom complet', 'Full name')}</span>
                 <input
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
@@ -102,14 +104,16 @@ export default function AccountPage() {
                   autoCapitalize="words"
                   maxLength={60}
                   required
-                  placeholder="Ex : Awa Diop"
+                  placeholder={t('Ex : Awa Diop', 'E.g. Awa Diop')}
                   className="rounded-2xl bg-black/25 px-4 py-3 text-lg outline-none ring-white/40 placeholder:text-white/30 focus:ring-2"
                 />
-                <span className="text-xs text-white/50">Ton prénom et ton nom. Il reste privé : les autres joueurs ne voient que ton pseudo.</span>
+                <span className="text-xs text-white/50">
+                  {t('Ton prénom et ton nom. Il reste privé : les autres joueurs ne voient que ton pseudo.', 'Your first and last name. It stays private: other players only see your username.')}
+                </span>
               </label>
             )}
             <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-semibold text-white/70">Pseudo</span>
+              <span className="text-sm font-semibold text-white/70">{t('Pseudo', 'Username')}</span>
               <input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -117,12 +121,12 @@ export default function AccountPage() {
                 autoCapitalize="none"
                 maxLength={16}
                 required
-                placeholder="Ex : Awa_221"
+                placeholder={t('Ex : Awa_221', 'E.g. Awa_221')}
                 className="rounded-2xl bg-black/25 px-4 py-3 text-lg outline-none ring-white/40 placeholder:text-white/30 focus:ring-2"
               />
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-semibold text-white/70">Mot de passe</span>
+              <span className="text-sm font-semibold text-white/70">{t('Mot de passe', 'Password')}</span>
               <span className="relative flex">
                 <input
                   type={showPassword ? 'text' : 'password'}
@@ -139,7 +143,7 @@ export default function AccountPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                  aria-label={showPassword ? t('Masquer le mot de passe', 'Hide password') : t('Afficher le mot de passe', 'Show password')}
                   aria-pressed={showPassword}
                   className="absolute inset-y-0 right-1 my-auto grid size-11 place-items-center rounded-full text-white/60 active:bg-white/10"
                 >
@@ -148,29 +152,36 @@ export default function AccountPage() {
               </span>
             </label>
             {mode === 'register' && (
-              <p className="text-xs text-white/50">3 à 16 caractères pour le pseudo, au moins 6 pour le mot de passe.</p>
+              <p className="text-xs text-white/50">
+                {t('3 à 16 caractères pour le pseudo, au moins 6 pour le mot de passe.', '3 to 16 characters for the username, at least 6 for the password.')}
+              </p>
             )}
             {mode === 'register' && referrer && (
               <p className="flex items-center gap-2 rounded-xl bg-[#00a884]/15 p-3 text-sm text-[#d1d7db]">
                 <Icon.Gift size={18} className="shrink-0 text-[#00a884]" />
                 <span>
-                  Invité par <strong>{referrer}</strong> : {REFERRAL.newcomerCoins} pièces offertes après tes {REFERRAL.gamesNeeded} premières parties en ligne.
+                  {t('Invité par', 'Invited by')} <strong>{referrer}</strong>
+                  {referral && referral.free.newcomerCoins > 0 &&
+                    t(
+                      ` : ${referral.free.newcomerCoins} pièces offertes après tes ${referral.free.gamesNeeded} premières parties en ligne.`,
+                      `: ${referral.free.newcomerCoins} free coins after your first ${referral.free.gamesNeeded} online games.`,
+                    )}
                 </span>
               </p>
             )}
             {error && <p className="pop-in rounded-xl bg-red-500/20 p-3 text-center text-sm font-medium text-red-200">{error}</p>}
             <button type="submit" disabled={busy} className="btn btn-primary mt-1">
-              {busy ? 'Un instant…' : mode === 'register' ? 'Créer mon compte' : 'Me connecter'}
+              {busy ? t('Un instant…', 'One moment…') : mode === 'register' ? t('Créer mon compte', 'Create my account') : t('Me connecter', 'Sign in')}
             </button>
             {mode === 'register' && (
               <p className="text-center text-xs leading-relaxed text-white/50">
-                En créant un compte, tu acceptes les{' '}
+                {t('En créant un compte, tu acceptes les', 'By creating an account, you accept the')}{' '}
                 <Link href="/conditions" className="font-semibold text-[#00a884]">
-                  conditions d’utilisation
+                  {t('conditions d’utilisation', 'terms of use')}
                 </Link>{' '}
-                et la{' '}
+                {t('et la', 'and the')}{' '}
                 <Link href="/confidentialite" className="font-semibold text-[#00a884]">
-                  politique de confidentialité
+                  {t('politique de confidentialité', 'privacy policy')}
                 </Link>
                 .
               </p>
@@ -178,16 +189,17 @@ export default function AccountPage() {
           </form>
 
           <section className="card p-4 text-sm text-white/70">
-            <h2 className="mb-2 font-bold text-white">Pourquoi un compte ?</h2>
+            <h2 className="mb-2 font-bold text-white">{t('Pourquoi un compte ?', 'Why an account?')}</h2>
             <ul className="flex flex-col gap-1.5">
-              <li>💾 Tes pièces, styles et niveaux sont sauvegardés et suivent ton pseudo sur tous tes appareils.</li>
-              <li>🏅 Tu apparais au classement général.</li>
-              <li>🌍 Tes victoires en ligne sont comptées par le serveur.</li>
+              <li>💾 {t('Tes pièces, styles et niveaux sont sauvegardés et suivent ton pseudo sur tous tes appareils.', 'Your coins, styles and levels are saved and follow your username on all your devices.')}</li>
+              <li>🏅 {t('Tu apparais au classement général.', 'You appear on the leaderboard.')}</li>
+              <li>🌍 {t('Tes victoires en ligne sont comptées par le serveur.', 'Your online wins are counted by the server.')}</li>
             </ul>
             {hasGuestProgress && mode === 'register' && (
               <p className="mt-3 rounded-xl bg-emerald-400/10 p-3 text-emerald-100">
-                Ta progression actuelle (<CoinAmount value={profile.coins} size={14} />, niveau, styles achetés) sera
-                transférée sur ton nouveau compte.
+                {t('Ta progression actuelle (', 'Your current progress (')}
+                <CoinAmount value={profile.coins} size={14} />
+                {t(', niveau, styles achetés) sera transférée sur ton nouveau compte.', ', level, styles bought) will be moved to your new account.')}
               </p>
             )}
           </section>
@@ -199,6 +211,7 @@ export default function AccountPage() {
 
 /** Shows the account's real name, or asks for it if the account was made before it was required. */
 function FullNameCard({ saved }: { saved: string | null }) {
+  const { t } = useLang();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -213,7 +226,7 @@ function FullNameCard({ saved }: { saved: string | null }) {
       await saveFullName(value.trim());
       setEditing(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur inattendue.');
+      setError(err instanceof Error ? err.message : t('Erreur inattendue.', 'Unexpected error.'));
     } finally {
       setBusy(false);
     }
@@ -223,7 +236,7 @@ function FullNameCard({ saved }: { saved: string | null }) {
     return (
       <p className="mt-3 flex items-center justify-center gap-2 text-sm text-white/70">
         <span>
-          Nom complet : <strong className="text-white">{saved}</strong>
+          {t('Nom complet :', 'Full name:')} <strong className="text-white">{saved}</strong>
         </span>
         <button
           type="button"
@@ -233,7 +246,7 @@ function FullNameCard({ saved }: { saved: string | null }) {
           }}
           className="font-semibold text-[#00a884]"
         >
-          Modifier
+          {t('Modifier', 'Edit')}
         </button>
       </p>
     );
@@ -242,7 +255,7 @@ function FullNameCard({ saved }: { saved: string | null }) {
   return (
     <form onSubmit={submit} className="mt-4 flex flex-col gap-2 rounded-2xl bg-black/20 p-3 text-left">
       <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-semibold text-white/70">{saved ? 'Corriger ton nom complet' : 'Ajoute ton nom complet'}</span>
+        <span className="text-sm font-semibold text-white/70">{saved ? t('Corriger ton nom complet', 'Correct your full name') : t('Ajoute ton nom complet', 'Add your full name')}</span>
         <input
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -250,20 +263,20 @@ function FullNameCard({ saved }: { saved: string | null }) {
           autoCapitalize="words"
           maxLength={60}
           required
-          placeholder="Ex : Awa Diop"
+          placeholder={t('Ex : Awa Diop', 'E.g. Awa Diop')}
           className="rounded-2xl bg-black/25 px-4 py-3 text-lg outline-none ring-white/40 placeholder:text-white/30 focus:ring-2"
         />
-        <span className="text-xs text-white/50">Privé : les autres joueurs ne voient que ton pseudo.</span>
+        <span className="text-xs text-white/50">{t('Privé : les autres joueurs ne voient que ton pseudo.', 'Private: other players only see your username.')}</span>
       </label>
       {error && <p className="rounded-xl bg-red-500/20 p-2 text-center text-sm font-medium text-red-200">{error}</p>}
       <div className="flex gap-2">
         {saved && (
           <button type="button" onClick={() => setEditing(false)} className="btn btn-ghost flex-1">
-            Annuler
+            {t('Annuler', 'Cancel')}
           </button>
         )}
         <button type="submit" disabled={busy} className="btn btn-primary flex-1">
-          {busy ? 'Un instant…' : 'Enregistrer'}
+          {busy ? t('Un instant…', 'One moment…') : t('Enregistrer', 'Save')}
         </button>
       </div>
     </form>

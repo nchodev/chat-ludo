@@ -1,6 +1,19 @@
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
-import { GAME_NAMES, MAX_WINNER_SHARE, chatPreviewText, MIN_WINNER_SHARE, isGameId, setStakeConfig, stakeConfig, validateStakeConfig, type GameId, type StakeConfig } from '@ludo/engine';
+import {
+  GAME_NAMES,
+  MAX_WINNER_SHARE,
+  MIN_WINNER_SHARE,
+  REFERRAL_BOUNDS,
+  chatPreviewText,
+  isGameId,
+  setStakeConfig,
+  stakeConfig,
+  validateReferralSettings,
+  validateStakeConfig,
+  type GameId,
+  type StakeConfig,
+} from '@ludo/engine';
 import { gameAvailability, setGameEnabled } from './games';
 import { HttpError, bearer, ip, limit, moderateMessage, registerRoutes, type Handler } from './api';
 import * as db from './db';
@@ -15,12 +28,24 @@ import {
   waveConfigured,
   type PaymentProvider,
 } from './payments';
+import { announce } from './notify';
 import { RateLimiter, cleanText } from './security';
 
 const MAX_PASSWORD = 128;
 const MAX_ADJUSTMENT = 10_000_000;
 const PAGE_SIZE = 50;
 const STAKES_SETTING = 'stakes';
+
+/** The Parrainage page: the programme's settings with their bounds, and its figures. */
+function referralView() {
+  return {
+    settings: db.referralSettings(),
+    bounds: REFERRAL_BOUNDS,
+    minDeposit: paymentSettings('wave').deposit.min,
+    walletCap: stakeConfig().premiumWalletCap,
+    stats: db.referralStats(),
+  };
+}
 
 /** A live room as the admin panel sees it. */
 export interface AdminRoom {
@@ -378,6 +403,49 @@ export function registerAdminRoutes(runtime: AdminRuntime) {
         after: next,
       });
       return paymentSettingsView();
+    },
+
+    'GET /api/admin/referral': (req) => {
+      requireAdmin(req);
+      return referralView();
+    },
+
+    'GET /api/admin/announcements': (req) => {
+      requireAdmin(req);
+      return { announcements: db.listAnnouncements(), pushDevices: db.usersWithPushSubscriptions().length };
+    },
+
+    /** Sends a notification to every player's bell, and optionally to their phones. */
+    'POST /api/admin/announcements': (req, body) => {
+      const admin = requireAdmin(req);
+      const title = cleanText(body.title, 80);
+      const text = cleanText(body.body, 400);
+      if (!title) throw new HttpError(400, 'Donne un titre à l’annonce.');
+      if (!text) throw new HttpError(400, 'Écris le message de l’annonce.');
+      const rawUrl = typeof body.url === 'string' ? body.url.trim() : '';
+      // Only pages of the app: an announcement must not send players to another site.
+      if (rawUrl && !/^\/(?!\/)[\w\-./?=&%#]*$/.test(rawUrl)) throw new HttpError(400, 'Le lien doit être une page de l’app, par exemple /parrainage.');
+      const sent = announce({ title, body: text, url: rawUrl || null }, body.push === true);
+      db.logAdminAction(admin.id, 'announcement.send', 'settings', { id: sent.id, title, push: body.push === true });
+      return { announcements: db.listAnnouncements(), pushDevices: db.usersWithPushSubscriptions().length };
+    },
+
+    'POST /api/admin/announcements/delete': (req, body) => {
+      const admin = requireAdmin(req);
+      const id = intField(body.id, 'Annonce');
+      if (!db.deleteAnnouncement(id)) throw new HttpError(404, 'Annonce introuvable.');
+      db.logAdminAction(admin.id, 'announcement.delete', 'settings', { id });
+      return { announcements: db.listAnnouncements(), pushDevices: db.usersWithPushSubscriptions().length };
+    },
+
+    'POST /api/admin/referral': (req, body) => {
+      const admin = requireAdmin(req);
+      const next = validateReferralSettings(body.settings);
+      if (typeof next === 'string') throw new HttpError(400, next);
+      const before = db.referralSettings();
+      db.setReferralSettings(next);
+      db.logAdminAction(admin.id, 'settings.referral', 'settings', { before, after: next });
+      return referralView();
     },
 
     'GET /api/admin/reports': (req) => {

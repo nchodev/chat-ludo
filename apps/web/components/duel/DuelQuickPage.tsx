@@ -14,6 +14,7 @@ import { getSessionToken, refreshProfile, useProfile } from '@/lib/profile';
 import { useStakeConfig } from '@/lib/stakes';
 import { getSocket, getStoredName, storeDraughtsToken, storeName } from '@/lib/socket';
 import { DUEL_UI } from './duelGames';
+import { useLang } from '@/lib/i18n';
 
 const CURRENCY_TABS: { id: Currency; label: string }[] = [
   { id: 'free', label: 'Free' },
@@ -28,6 +29,7 @@ export function DuelQuickPage({ kind }: { kind: DuelGame }) {
   const { session, profile, premiumCoins, ready } = useProfile();
   const stakes = useStakeConfig();
   const { gate, notice } = useAdultGate();
+  const { t, locale } = useLang();
   const [name, setName] = useState('');
   const [pickedCurrency, setCurrency] = useState<Currency>('free');
   const currency: Currency = stakes.premiumEnabled ? pickedCurrency : 'free';
@@ -52,8 +54,8 @@ export function DuelQuickPage({ kind }: { kind: DuelGame }) {
     if (table && !session) return setAskLogin(table);
     if (!table && !session && !askName && chosenName === name) return setAskName(true);
     const player = (session?.username ?? chosenName).trim();
-    if (!player) return setError('Choisis d’abord un pseudo.');
-    if (table && balance(table.currency) < table.stake) return setError('Solde insuffisant pour cette mise.');
+    if (!player) return setError(t('Choisis d’abord un pseudo.', 'Choose a name first.'));
+    if (table && balance(table.currency) < table.stake) return setError(t('Solde insuffisant pour cette mise.', 'Not enough coins for this stake.'));
     setAskName(false);
     if (player !== name) setName(player);
     storeName(player);
@@ -122,11 +124,15 @@ export function DuelQuickPage({ kind }: { kind: DuelGame }) {
     return (
       <div className="min-h-dvh bg-[#0b141a] text-[#e9edef]">
         <AppBar
-          title="Partie rapide"
-          subtitle={searching ? `Table ${premium ? 'Premium' : 'Free'} · mise ${searching.stake}` : 'Sans mise'}
+          title={t('Partie rapide', 'Quick match')}
+          subtitle={
+            searching
+              ? t(`Table ${premium ? 'Premium' : 'Free'} · mise ${searching.stake}`, `${premium ? 'Premium' : 'Free'} table · stake ${searching.stake}`)
+              : t('Sans mise', 'No stake')
+          }
           backHref={ui.base}
           backText={ui.name}
-          backLabel={`Retour : ${ui.name}`}
+          backLabel={t(`Retour : ${ui.name}`, `Back: ${ui.name}`)}
         />
         <main className="mx-auto flex max-w-lg flex-col items-center px-4 pt-8 pb-32 text-center">
           <div className="relative grid size-56 place-items-center">
@@ -136,20 +142,22 @@ export function DuelQuickPage({ kind }: { kind: DuelGame }) {
             <span className="absolute inset-8 rounded-full bg-amber-500/10" />
             {ui.searchArt}
           </div>
-          <h2 className="mt-6 text-[22px] font-semibold">Recherche d’un adversaire</h2>
-          <p className="mt-1 text-[14.5px] text-[#8696a0]">La partie commence dès qu’un joueur rejoint cette table.</p>
+          <h2 className="mt-6 text-[22px] font-semibold">{t('Recherche d’un adversaire', 'Looking for an opponent')}</h2>
+          <p className="mt-1 text-[14.5px] text-[#8696a0]">{t('La partie commence dès qu’un joueur rejoint cette table.', 'The game starts as soon as a player joins this table.')}</p>
 
           {split && (
             <div className="mt-8 grid w-full grid-cols-2 gap-3">
               <div className="rounded-2xl bg-[#1f2c33] p-3">
-                <p className="text-[12px] text-[#8696a0]">Cagnotte</p>
+                <p className="text-[12px] text-[#8696a0]">{t('Cagnotte', 'Pot')}</p>
                 <CoinAmount value={split.pot} premium={premium} size={20} className="mt-1 text-[18px]" />
               </div>
               <div className="rounded-2xl bg-[#1f2c33] p-3">
-                <p className="text-[12px] text-[#8696a0]">Gain du vainqueur</p>
+                <p className="text-[12px] text-[#8696a0]">{t('Gain du vainqueur', 'Winner’s prize')}</p>
                 <CoinAmount value={split.prize} premium={premium} size={20} className="mt-1 text-[18px] text-[#25d366]" />
               </div>
-              <p className="col-span-2 text-[12.5px] text-[#8696a0]">Ta mise n’est prise qu’au lancement de la partie. Annuler avant ne coûte rien.</p>
+              <p className="col-span-2 text-[12.5px] text-[#8696a0]">
+                {t('Ta mise n’est prise qu’au lancement de la partie. Annuler avant ne coûte rien.', 'Your stake is only taken when the game starts. Cancelling before costs nothing.')}
+              </p>
             </div>
           )}
         </main>
@@ -167,7 +175,7 @@ export function DuelQuickPage({ kind }: { kind: DuelGame }) {
               className="flex h-14 w-full items-center justify-center gap-2 rounded-full border border-[#2a3942] text-[16px] font-semibold transition active:bg-white/5"
             >
               <Icon.Close size={22} />
-              Annuler la recherche
+              {t('Annuler la recherche', 'Cancel the search')}
             </button>
           </div>
         </div>
@@ -181,7 +189,13 @@ export function DuelQuickPage({ kind }: { kind: DuelGame }) {
 
   return (
     <div className="min-h-dvh bg-[#0b141a] text-[#e9edef]">
-      <AppBar title="Partie rapide" subtitle={`${ui.name} · un contre un`} backHref={ui.base} backText={ui.name} backLabel={`Retour : ${ui.name}`} />
+      <AppBar
+        title={t('Partie rapide', 'Quick match')}
+        subtitle={t(`${ui.name} · un contre un`, `${ui.name} · one on one`)}
+        backHref={ui.base}
+        backText={ui.name}
+        backLabel={t(`Retour : ${ui.name}`, `Back: ${ui.name}`)}
+      />
 
       <div className={`sticky top-[calc(4rem+env(safe-area-inset-top))] z-10 bg-[#1f2c33] shadow-md ${stakes.premiumEnabled ? '' : 'hidden'}`}>
         <div className="mx-auto flex max-w-lg">
@@ -210,16 +224,16 @@ export function DuelQuickPage({ kind }: { kind: DuelGame }) {
         >
           <span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-black/25">{premium ? <GemIcon size={34} /> : <CoinIcon size={34} />}</span>
           <span className="min-w-0 flex-1">
-            <span className="block text-[13px] text-[#d1d7db]">{premium ? 'Pièces Premium (achetées)' : 'Pièces Free (gagnées en jouant)'}</span>
+            <span className="block text-[13px] text-[#d1d7db]">{premium ? t('Pièces Premium (achetées)', 'Premium coins (bought)') : t('Pièces Free (gagnées en jouant)', 'Free coins (earned by playing)')}</span>
             {session ? (
               <CoinAmount value={balance(currency)} premium={premium} size={22} className="text-[24px]" />
             ) : (
-              <span className="block text-[15px] font-medium">Connecte-toi pour miser</span>
+              <span className="block text-[15px] font-medium">{t('Connecte-toi pour miser', 'Sign in to stake')}</span>
             )}
           </span>
           {!session && (
             <Link href="/compte" className="h-10 shrink-0 rounded-full bg-[#00a884] px-4 text-[14px] leading-10 font-semibold text-[#0b141a]">
-              Compte
+              {t('Compte', 'Account')}
             </Link>
           )}
         </section>
@@ -235,9 +249,9 @@ export function DuelQuickPage({ kind }: { kind: DuelGame }) {
                       <Icon.School size={24} />
                     </span>
                   }
-                  title="Sans mise"
-                  subtitle="Pour le plaisir, sans pièces en jeu"
-                  action="Jouer"
+                  title={t('Sans mise', 'No stake')}
+                  subtitle={t('Pour le plaisir, sans pièces en jeu', 'Just for fun, no coins at stake')}
+                  action={t('Jouer', 'Play')}
                   onPlay={() => start(null)}
                 />
               </li>
@@ -255,15 +269,15 @@ export function DuelQuickPage({ kind }: { kind: DuelGame }) {
                     }
                     title={
                       <span className="flex items-center gap-1.5">
-                        Mise <CoinAmount value={table.stake} premium={premium} size={16} />
+                        {t('Mise', 'Stake')} <CoinAmount value={table.stake} premium={premium} size={16} />
                       </span>
                     }
                     subtitle={
                       <>
-                        Le gagnant remporte <span className="font-medium text-[#25d366]">{prize.toLocaleString('fr-FR')}</span>
+                        {t('Le gagnant remporte', 'The winner gets')} <span className="font-medium text-[#25d366]">{prize.toLocaleString(locale)}</span>
                       </>
                     }
-                    action={session && !affordable ? 'Solde bas' : 'Jouer'}
+                    action={session && !affordable ? t('Solde bas', 'Low balance') : t('Jouer', 'Play')}
                     disabled={!!session && !affordable}
                     onPlay={() => start(table)}
                   />
@@ -277,21 +291,21 @@ export function DuelQuickPage({ kind }: { kind: DuelGame }) {
               currency={currency}
               balance={session ? balance(currency) : null}
               players={2}
-              action="Jouer"
+              action={t('Jouer', 'Play')}
               onSubmit={(id) => start(stakeTable(id) ?? null)}
             />
-            <p className="px-1 pt-1.5 text-[12px] text-[#8696a0]">Tu joueras contre un joueur qui a choisi le même montant.</p>
+            <p className="px-1 pt-1.5 text-[12px] text-[#8696a0]">{t('Tu joueras contre un joueur qui a choisi le même montant.', 'You’ll play against someone who picked the same amount.')}</p>
           </div>
         </section>
 
         <section>
-          <h2 className="px-5 pt-2 pb-2 text-[13px] font-medium tracking-wide text-[#00a884]">Comment ça marche</h2>
+          <h2 className="px-5 pt-2 pb-2 text-[13px] font-medium tracking-wide text-[#00a884]">{t('Comment ça marche', 'How it works')}</h2>
           <ul className="mx-4 overflow-hidden rounded-[28px] bg-[#1f2c33]">
             {[
-              { icon: Icon.Groups, title: 'Un contre un', text: 'Le premier joueur qui arrive à la même table' },
-              { icon: Icon.Timer, title: `${ui.clockMs / 60_000} minutes chacun`, text: 'Temps écoulé : la partie est perdue' },
-              { icon: Icon.Trophy, title: `${winnerPercent} % de la cagnotte`, text: 'Pour le gagnant, le reste est la commission' },
-              { icon: Icon.Handshake, title: 'Match nul', text: 'Chacun récupère sa mise' },
+              { icon: Icon.Groups, title: t('Un contre un', 'One on one'), text: t('Le premier joueur qui arrive à la même table', 'The first player who comes to the same table') },
+              { icon: Icon.Timer, title: t(`${ui.clockMs / 60_000} minutes chacun`, `${ui.clockMs / 60_000} minutes each`), text: t('Temps écoulé : la partie est perdue', 'Out of time: the game is lost') },
+              { icon: Icon.Trophy, title: t(`${winnerPercent} % de la cagnotte`, `${winnerPercent}% of the pot`), text: t('Pour le gagnant, le reste est la commission', 'For the winner, the rest is the commission') },
+              { icon: Icon.Handshake, title: t('Match nul', 'Draw'), text: t('Chacun récupère sa mise', 'Everyone gets their stake back') },
             ].map(({ icon: RowIcon, title, text }, i) => (
               <li key={title} className="flex items-center gap-4 px-4">
                 <span className="grid size-10 shrink-0 place-items-center rounded-full bg-amber-500/15 text-amber-400">
@@ -305,13 +319,16 @@ export function DuelQuickPage({ kind }: { kind: DuelGame }) {
             ))}
           </ul>
           <p className="px-5 pt-3 text-[12.5px] leading-relaxed text-[#8696a0]">
-            Quitter la partie ou rester déconnecté plus de 30 secondes fait perdre ta mise. Si le serveur interrompt une partie, chaque mise est remboursée.
+            {t(
+              'Quitter la partie ou rester déconnecté plus d’une minute fait perdre ta mise. Si le serveur redémarre, la partie reprend là où elle en était.',
+              'Leaving the game or staying disconnected for more than a minute loses your stake. If the server restarts, the game picks up where it left off.',
+            )}
           </p>
         </section>
       </main>
       {notice}
 
-      <Sheet open={askName} title="Ton pseudo" onClose={() => setAskName(false)}>
+      <Sheet open={askName} title={t('Ton pseudo', 'Your name')} onClose={() => setAskName(false)}>
         <form
           className="flex flex-col gap-4"
           onSubmit={(e) => {
@@ -319,13 +336,13 @@ export function DuelQuickPage({ kind }: { kind: DuelGame }) {
             if (name.trim()) start(null, name.trim());
           }}
         >
-          <p className="text-[14px] text-[#8696a0]">C’est le nom que verra ton adversaire.</p>
+          <p className="text-[14px] text-[#8696a0]">{t('C’est le nom que verra ton adversaire.', 'This is the name your opponent will see.')}</p>
           <input
             autoFocus
             value={name}
             maxLength={20}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Ex : Awa"
+            placeholder={t('Ex : Awa', 'E.g. Awa')}
             autoComplete="nickname"
             className="h-12 border-b-2 border-[#2a3942] bg-transparent px-1 text-[18px] outline-none placeholder:text-[#8696a0]/60 focus:border-[#00a884]"
           />
@@ -335,16 +352,19 @@ export function DuelQuickPage({ kind }: { kind: DuelGame }) {
             className="flex h-12 items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] disabled:bg-[#2a3942] disabled:text-[#8696a0]"
           >
             <Icon.Play size={22} />
-            Jouer
+            {t('Jouer', 'Play')}
           </button>
         </form>
       </Sheet>
 
-      <Sheet open={!!askLogin} title="Connexion requise" onClose={() => setAskLogin(null)}>
+      <Sheet open={!!askLogin} title={t('Connexion requise', 'Sign-in required')} onClose={() => setAskLogin(null)}>
         {askLogin && (
           <div className="flex flex-col gap-4">
             <p className="text-[14px] text-[#8696a0]">
-              La mise est prise sur les pièces de ton compte. Connecte-toi : tu reviendras ici et la recherche démarrera pour cette table.
+              {t(
+                'La mise est prise sur les pièces de ton compte. Connecte-toi : tu reviendras ici et la recherche démarrera pour cette table.',
+                'The stake is taken from your account’s coins. Sign in: you’ll come back here and the search will start for this table.',
+              )}
             </p>
             <Link
               href="/compte?mode=login"
@@ -352,7 +372,7 @@ export function DuelQuickPage({ kind }: { kind: DuelGame }) {
               className="flex h-12 items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a]"
             >
               <Icon.Login size={22} />
-              Se connecter
+              {t('Se connecter', 'Sign in')}
             </Link>
           </div>
         )}

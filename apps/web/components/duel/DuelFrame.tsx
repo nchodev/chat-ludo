@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { DuelMovePayload, Side } from '@ludo/engine';
 import { BackButton } from '../BackButton';
 import { Icon } from '../Icons';
+import { tr } from '@/lib/i18n';
 
 /** A player of a two-player board game, as shown above or below the board. */
 export interface DuelSeat {
@@ -64,16 +65,16 @@ export function PlayerBar({ seat, turn, icon, idle, badge }: { seat: DuelSeat; t
       <span className="relative size-10 shrink-0">
         {icon}
         {seat.connected === false && (
-          <span className="absolute -right-0.5 -bottom-0.5 size-3.5 rounded-full bg-[#f15c6d] ring-2 ring-[#0b141a]" title="Déconnecté" />
+          <span className="absolute -right-0.5 -bottom-0.5 size-3.5 rounded-full bg-[#f15c6d] ring-2 ring-[#0b141a]" title={tr('Déconnecté', 'Disconnected')} />
         )}
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5 text-[15px] font-semibold">
           <span className="truncate">{seat.name}</span>
-          {seat.you && <span className="rounded-full bg-[#00a884]/15 px-1.5 text-[11px] font-medium text-[#00a884]">Toi</span>}
+          {seat.you && <span className="rounded-full bg-[#00a884]/15 px-1.5 text-[11px] font-medium text-[#00a884]">{tr('Toi', 'You')}</span>}
         </span>
         <span className="block truncate text-[12.5px] text-[#8696a0]">
-          {seat.connected === false ? 'Déconnecté' : turn ? 'Au trait' : (seat.detail ?? idle)}
+          {seat.connected === false ? tr('Déconnecté', 'Disconnected') : turn ? tr('Au trait', 'To move') : (seat.detail ?? idle)}
         </span>
       </span>
       {badge}
@@ -130,7 +131,7 @@ export function DuelFrame({
     <div className="flex min-h-dvh flex-col bg-[#0b141a] text-[#e9edef]">
       <header className="sticky top-0 z-10 bg-[#1f2c33] pt-[env(safe-area-inset-top)] shadow-md">
         <div className="mx-auto flex h-14 max-w-lg items-center gap-1 px-1">
-          <BackButton onClick={onBack} label={backLabel} text="Quitter" />
+          <BackButton onClick={onBack} label={backLabel} text={tr('Quitter', 'Leave')} />
           <div className="min-w-0 flex-1 px-1">
             <h1 className="truncate text-[18px] leading-tight font-medium">{title}</h1>
             {subtitle && <p className="truncate text-[12.5px] text-[#8696a0]">{subtitle}</p>}
@@ -157,7 +158,7 @@ export function DuelFrame({
               className="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-full text-[14px] font-medium text-[#8696a0] transition active:bg-white/5"
             >
               <Icon.Eye size={18} />
-              Voir le plateau
+              {tr('Voir le plateau', 'See the board')}
             </button>
           </div>
         </div>
@@ -169,7 +170,7 @@ export function DuelFrame({
           className="fixed right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 flex h-12 items-center gap-2 rounded-full bg-[#00a884] px-5 text-[15px] font-semibold text-[#0b141a] shadow-xl"
         >
           <Icon.Trophy size={20} />
-          Résultat
+          {tr('Résultat', 'Result')}
         </button>
       )}
     </div>
@@ -191,7 +192,13 @@ export function ResultHeader({
   const draw = !winner;
   const won = !draw && viewer === winner;
   const lost = !draw && viewer !== null && viewer !== winner;
-  const title = draw ? 'Match nul' : viewer === null ? `${names[winner]} gagne !` : won ? 'Victoire !' : 'Défaite';
+  const title = draw
+    ? tr('Match nul', 'Draw')
+    : viewer === null
+      ? tr(`${names[winner]} gagne !`, `${names[winner]} wins!`)
+      : won
+        ? tr('Victoire !', 'Victory!')
+        : tr('Défaite', 'Defeat');
   return (
     <div className="flex flex-col items-center text-center">
       <span
@@ -210,13 +217,13 @@ export function commonEnding(reason: string | null, winner: Side | null, names: 
   const loser = winner ? names[winner === 'white' ? 'black' : 'white'] : '';
   switch (reason) {
     case 'resign':
-      return `${loser} a abandonné.`;
+      return tr(`${loser} a abandonné.`, `${loser} resigned.`);
     case 'timeout':
-      return `Temps écoulé pour ${loser}.`;
+      return tr(`Temps écoulé pour ${loser}.`, `${loser} ran out of time.`);
     case 'abandon':
-      return `${loser} a quitté la partie.`;
+      return tr(`${loser} a quitté la partie.`, `${loser} left the game.`);
     case 'agreement':
-      return 'Nulle acceptée par les deux joueurs.';
+      return tr('Nulle acceptée par les deux joueurs.', 'Draw agreed by both players.');
     default:
       return null;
   }

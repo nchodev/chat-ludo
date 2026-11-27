@@ -2,8 +2,9 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import type { ChatMessageView, WalletChange } from '@ludo/engine';
+import type { AppNotification, ChatMessageView, WalletChange } from '@ludo/engine';
 import { getViewingChat, requestOpenChat } from '@/lib/chat';
+import { clearNotifications, receiveNotification, refreshUnread } from '@/lib/notifications';
 import { getSessionToken, refreshProfile, useProfile } from '@/lib/profile';
 import { showLocalNotification } from '@/lib/push';
 import { getSocket } from '@/lib/socket';
@@ -90,16 +91,26 @@ export function ChatNotifier() {
       void refreshProfile();
       setWallet({ ...change, key: Date.now() });
       navigator.vibrate?.(change.delta > 0 ? 40 : [60, 40, 60]);
-      if (document.visibilityState === 'hidden') {
+      // Other moves arrive as a notification of the bell too, which shows them (see onNotification).
+      if (document.visibilityState === 'hidden' && change.reason === 'stake') {
         const { title, body } = walletText(change);
-        const walletPage = change.reason === 'deposit' || change.reason.startsWith('withdrawal');
-        void showLocalNotification(title, body, 'wallet', walletPage ? '/portefeuille' : '/compte');
+        void showLocalNotification(title, body, 'wallet', '/compte');
       }
     };
+    const onNotification = (notification: AppNotification) => {
+      receiveNotification(notification);
+      if (document.visibilityState === 'hidden') {
+        void showLocalNotification(notification.title, notification.body, `notif-${notification.id}`, notification.url ?? '/notifications');
+      }
+    };
+    const onReconnect = () => void refreshUnread();
     socket.on('connect', auth);
     socket.on('chat:message', onMessage);
     socket.on('local:code', onLocalCode);
     socket.on('wallet:changed', onWallet);
+    socket.on('notification:new', onNotification);
+    socket.on('connect', onReconnect);
+    void refreshUnread();
     if (socket.connected) auth();
     else socket.connect();
     return () => {
@@ -107,6 +118,9 @@ export function ChatNotifier() {
       socket.off('chat:message', onMessage);
       socket.off('local:code', onLocalCode);
       socket.off('wallet:changed', onWallet);
+      socket.off('notification:new', onNotification);
+      socket.off('connect', onReconnect);
+      clearNotifications();
       socket.emit('chat:logout');
     };
   }, [signedIn]);
@@ -210,6 +224,12 @@ function LocalCodeDialog({ from, code, expiresAt, onClose }: { from: string; cod
 function walletText({ currency, delta, reason, note, amount: sent }: WalletChange) {
   const amount = `${Math.abs(delta)} ${currency === 'premium' ? 'Premium' : 'Free'}`;
   if (reason === 'deposit') return { title: `${amount} crédités`, body: 'Ton dépôt Wave est arrivé sur ton compte.' };
+  if (reason === 'referral_welcome') {
+    return { title: `Bonus de bienvenue : +${amount}`, body: 'Merci pour ton premier dépôt ! Mise ce bonus en parties pour pouvoir le retirer.' };
+  }
+  if (reason === 'referral_deposit') {
+    return { title: `Bonus parrainage : +${amount}`, body: 'Un ami invité a fait son premier dépôt. Mise ce bonus en parties pour pouvoir le retirer.' };
+  }
   if (reason === 'withdrawal_paid') return { title: `Retrait de ${sent ?? 0} F envoyé`, body: 'L’argent a été envoyé sur ton compte Wave.' };
   if (reason === 'withdrawal_refund') return { title: `Retrait de ${Math.abs(delta)} F refusé`, body: `${note ? `${note} ` : ''}Tes pièces Premium t’ont été rendues.` };
   if (reason === 'admin') {

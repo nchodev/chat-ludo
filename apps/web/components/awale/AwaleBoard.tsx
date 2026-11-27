@@ -2,6 +2,7 @@
 
 import { memo } from 'react';
 import type { AwaleMove, Side } from '@ludo/engine';
+import { tr } from '@/lib/i18n';
 
 /** Fixed spots of the first seeds in a pit, in % of the pit; more seeds pile up on the same spots. */
 const SPOTS: [number, number][] = [
@@ -100,7 +101,7 @@ export const AwaleBoard = memo(function AwaleBoard({ pits, legalMoves, lastMove,
       <div className="grid grid-cols-6 gap-2.5">{top.map(cell)}</div>
       <div className="my-2.5 flex items-center gap-2 px-1 text-[10.5px] font-semibold tracking-widest text-[#f3e6cf]/45 uppercase">
         <span className="h-px flex-1 bg-[#f3e6cf]/15" />
-        sens du jeu
+        {tr('sens du jeu', 'direction of play')}
         <svg viewBox="0 0 24 12" className="h-3 w-6" aria-hidden>
           <path d="M2 6h18m-4-4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>

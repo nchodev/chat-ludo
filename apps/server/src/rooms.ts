@@ -37,7 +37,6 @@ import {
   listLiveRooms,
   notAdultConfirmed,
   openPot,
-  overPremiumCap,
   refundPot,
   saveLiveRoom,
   settlePot,
@@ -551,11 +550,6 @@ export class RoomManager {
     if (minors.length) {
       const names = staked.filter((c) => minors.includes(players[c]!)).map((c) => this.seatName(room, c));
       throw new RoomError(`${names.join(', ')} doi${names.length > 1 ? 'vent' : 't'} d’abord attester avoir 18 ans ou plus pour miser des pièces Premium.`);
-    }
-    const capped = table.currency === 'premium' ? overPremiumCap(userIds) : [];
-    if (capped.length) {
-      const names = staked.filter((c) => capped.includes(players[c]!)).map((c) => this.seatName(room, c));
-      throw new RoomError(`${names.join(', ')} dépasse${names.length > 1 ? 'nt' : ''} le plafond de ${stakeConfig().premiumWalletCap.toLocaleString('fr-FR')} pièces Premium : retrait nécessaire avant de miser.`);
     }
     const potId = randomUUID();
     const short = openPot(potId, table.id, table.currency, table.stake, userIds);

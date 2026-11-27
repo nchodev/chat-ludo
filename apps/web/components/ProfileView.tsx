@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { useState, type ComponentType } from 'react';
-import { ACHIEVEMENTS, REFERRAL, levelInfo } from '@ludo/engine';
+import { ACHIEVEMENTS, levelInfo } from '@ludo/engine';
+import { AppLockSetting } from './AppLockSetting';
 import { CoinAmount, CoinIcon } from './Coins';
 import { DailyCard } from './DailyCard';
 import { Icon } from './Icons';
@@ -10,12 +11,17 @@ import { LevelBar } from './LevelBar';
 import { ProfileQrSheet } from './ProfileQr';
 import { QrScanner } from './QrScanner';
 import { logout, useProfile } from '@/lib/profile';
+import { useReferralRules } from '@/lib/referral';
+import { useLang } from '@/lib/i18n';
+import { LanguageSwitcher } from './LanguageSwitcher';
 
 type IconComponent = ComponentType<{ size?: number; className?: string }>;
 
 /** The player's level, statistics, daily challenges and badges. */
 export function ProfileView() {
   const { profile, session, rank } = useProfile();
+  const { t } = useLang();
+  const referral = useReferralRules();
   const [qrOpen, setQrOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
   const { level, current, needed } = levelInfo(profile.xp);
@@ -23,12 +29,12 @@ export function ProfileView() {
   const winRate = s.games > 0 ? Math.round((s.wins / s.games) * 100) : 0;
 
   const stats: { label: string; value: string | number; icon: IconComponent }[] = [
-    { label: 'Parties', value: s.games, icon: Icon.Dice },
-    { label: 'Victoires', value: s.wins, icon: Icon.Trophy },
-    { label: 'Taux de victoire', value: `${winRate} %`, icon: Icon.Star },
-    { label: 'Captures', value: s.captures, icon: Icon.Target },
-    { label: 'Pions rentrés', value: s.pawnsHome, icon: Icon.Home },
-    { label: 'Meilleure série', value: s.bestWinStreak, icon: Icon.Bolt },
+    { label: t('Parties', 'Games'), value: s.games, icon: Icon.Dice },
+    { label: t('Victoires', 'Wins'), value: s.wins, icon: Icon.Trophy },
+    { label: t('Taux de victoire', 'Win rate'), value: t(`${winRate} %`, `${winRate}%`), icon: Icon.Star },
+    { label: t('Captures', 'Captures'), value: s.captures, icon: Icon.Target },
+    { label: t('Pions rentrés', 'Pawns home'), value: s.pawnsHome, icon: Icon.Home },
+    { label: t('Meilleure série', 'Best streak'), value: s.bestWinStreak, icon: Icon.Bolt },
   ];
 
   return (
@@ -39,17 +45,17 @@ export function ProfileView() {
             {session ? session.username[0].toUpperCase() : <Icon.Person size={34} />}
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xl font-bold">{session?.username ?? 'Invité'}</p>
+            <p className="truncate text-xl font-bold">{session?.username ?? t('Invité', 'Guest')}</p>
             <p className="text-sm text-white/60">
-              Niveau {level}
-              {rank && ` · ${rank}ᵉ au classement`}
+              {t('Niveau', 'Level')} {level}
+              {rank && t(` · ${rank}ᵉ au classement`, ` · #${rank} on the leaderboard`)}
             </p>
           </div>
         </div>
         <div>
           <LevelBar xp={profile.xp} />
           <p className="mt-1 text-right text-xs text-white/50">
-            {current} / {needed} XP avant le niveau {level + 1}
+            {t(`${current} / ${needed} XP avant le niveau ${level + 1}`, `${current} / ${needed} XP to level ${level + 1}`)}
           </p>
         </div>
         {session ? (
@@ -61,7 +67,7 @@ export function ProfileView() {
                 className="flex h-11 items-center justify-center gap-2 rounded-full bg-[#00a884] text-[14.5px] font-semibold text-[#0b141a] active:scale-[0.98]"
               >
                 <Icon.QrCode size={19} />
-                Mon QR code
+                {t('Mon QR code', 'My QR code')}
               </button>
               <button
                 type="button"
@@ -69,20 +75,20 @@ export function ProfileView() {
                 className="flex h-11 items-center justify-center gap-2 rounded-full border border-[#2a3942] text-[14.5px] font-semibold text-[#00a884] active:bg-white/5"
               >
                 <Icon.QrScan size={19} />
-                Scanner
+                {t('Scanner', 'Scan')}
               </button>
             </div>
             <button type="button" onClick={() => void logout()} className="btn btn-ghost text-sm">
-              Se déconnecter
+              {t('Se déconnecter', 'Sign out')}
             </button>
           </>
         ) : (
           <div className="rounded-2xl bg-emerald-400/10 p-3 text-sm text-emerald-100">
-            Ta progression est enregistrée seulement sur cet appareil.{' '}
+            {t('Ta progression est enregistrée seulement sur cet appareil.', 'Your progress is only saved on this device.')}{' '}
             <Link href="/compte" className="font-bold underline">
-              Crée un compte
+              {t('Crée un compte', 'Create an account')}
             </Link>{' '}
-            pour la garder partout et apparaître au classement.
+            {t('pour la garder partout et apparaître au classement.', 'to keep it everywhere and appear on the leaderboard.')}
           </div>
         )}
       </section>
@@ -90,7 +96,7 @@ export function ProfileView() {
       <section className="card p-4">
         <h2 className="mb-3 flex items-center gap-2 font-bold">
           <Icon.Medal size={20} className="text-[#00a884]" />
-          Statistiques
+          {t('Statistiques', 'Statistics')}
         </h2>
         <div className="grid grid-cols-3 gap-2">
           {stats.map(({ label, value, icon: StatIcon }) => (
@@ -108,9 +114,9 @@ export function ProfileView() {
           <CoinIcon size={24} />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[16px] font-medium">Portefeuille</span>
+          <span className="block text-[16px] font-medium">{t('Portefeuille', 'Wallet')}</span>
           <span className="flex items-center gap-1.5 text-[13px] text-[#8696a0]">
-            <CoinAmount value={profile.coins} size={13} /> · historique des gains, mises et achats
+            <CoinAmount value={profile.coins} size={13} /> · {t('historique des gains, mises et achats', 'winnings, stakes and purchases')}
           </span>
         </span>
         <Icon.ChevronRight className="shrink-0 text-[#8696a0]" />
@@ -121,13 +127,24 @@ export function ProfileView() {
           <Icon.PersonAdd size={24} />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[16px] font-medium">Inviter des amis</span>
+          <span className="block text-[16px] font-medium">{t('Inviter des amis', 'Invite friends')}</span>
           <span className="flex items-center gap-1.5 text-[13px] text-[#8696a0]">
-            <CoinAmount value={REFERRAL.referrerCoins} size={13} /> par ami qui joue {REFERRAL.gamesNeeded} parties
+            {referral && referral.free.referrerCoins > 0 ? (
+              <>
+                <CoinAmount value={referral.free.referrerCoins} size={13} />{' '}
+                {t(`par ami qui joue ${referral.free.gamesNeeded} parties`, `per friend who plays ${referral.free.gamesNeeded} games`)}
+              </>
+            ) : (
+              t('Gagnez des pièces ensemble', 'Earn coins together')
+            )}
           </span>
         </span>
         <Icon.ChevronRight className="shrink-0 text-[#8696a0]" />
       </Link>
+
+      <LanguageSwitcher />
+
+      {session && <AppLockSetting username={session.username} />}
 
       <DailyCard />
 
@@ -170,15 +187,15 @@ export function ProfileView() {
 
       <Link href="/classement" className="btn btn-light flex items-center justify-center gap-2">
         <Icon.Trophy size={20} />
-        Voir le classement
+        {t('Voir le classement', 'See the leaderboard')}
       </Link>
 
       <nav className="flex flex-wrap justify-center gap-x-5 gap-y-1 pt-1 text-[12.5px] text-[#8696a0]">
         <Link href="/conditions" className="underline-offset-2 hover:underline">
-          Conditions d’utilisation
+          {t('Conditions d’utilisation', 'Terms of use')}
         </Link>
         <Link href="/confidentialite" className="underline-offset-2 hover:underline">
-          Confidentialité
+          {t('Confidentialité', 'Privacy')}
         </Link>
       </nav>
 

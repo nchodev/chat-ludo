@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { useLang } from '@/lib/i18n';
 
 const HIDE_KEY = 'ludo:install-hide';
 const HIDE_MS = 14 * 24 * 60 * 60_000;
@@ -33,6 +34,7 @@ function isInstalled() {
 /** Offers to install LuChat on the home screen. Android gets the system dialog; iPhone gets the Share steps. */
 export function InstallPrompt() {
   const pathname = usePathname();
+  const { t } = useLang();
   const [prompt, setPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [ios, setIos] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -74,21 +76,21 @@ export function InstallPrompt() {
       <div className="relative flex min-w-0 items-center gap-3 rounded-2xl bg-[#1f2c33] py-3 pr-10 pl-3 shadow-xl ring-1 ring-white/10">
         <img src="/icon-192.png" alt="" className="size-11 shrink-0 rounded-xl" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-[#e9edef]">Installer LuChat</p>
+          <p className="text-sm font-semibold text-[#e9edef]">{t('Installer LuChat', 'Install LuChat')}</p>
           <p className="text-xs leading-snug text-[#8696a0]">
             {ios
-              ? 'Dans Safari : Partager, puis « Sur l’écran d’accueil ».'
+              ? t('Dans Safari : Partager, puis « Sur l’écran d’accueil ».', 'In Safari: Share, then “Add to Home Screen”.')
               : prompt
-                ? 'Ajoute le jeu à ton écran d’accueil, comme une application.'
-                : 'Menu du navigateur, puis « Installer l’application ».'}
+                ? t('Ajoute le jeu à ton écran d’accueil, comme une application.', 'Add the game to your home screen, like an app.')
+                : t('Menu du navigateur, puis « Installer l’application ».', 'Browser menu, then “Install app”.')}
           </p>
         </div>
         {prompt && !ios && (
           <button type="button" onClick={install} className="shrink-0 rounded-full bg-[#00a884] px-3 py-1.5 text-sm font-semibold text-[#0b141a]">
-            Installer
+            {t('Installer', 'Install')}
           </button>
         )}
-        <button type="button" onClick={hide} aria-label="Plus tard" className="absolute top-1.5 right-1.5 grid size-8 place-items-center text-[#e9edef]">
+        <button type="button" onClick={hide} aria-label={t('Plus tard', 'Later')} className="absolute top-1.5 right-1.5 grid size-8 place-items-center text-[#e9edef]">
           <svg viewBox="0 0 24 24" className="size-5" aria-hidden>
             <path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
           </svg>

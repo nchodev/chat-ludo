@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { GAMES, useGameAvailability, type GameEntry } from '@/lib/games';
 import { Icon } from './Icons';
+import { useLang } from '@/lib/i18n';
 import { LudoLogo } from './LudoLogo';
 import { DraughtsLogo } from './draughts/DraughtsLogo';
 import { AwaleLogo } from './awale/AwaleLogo';
@@ -32,6 +33,7 @@ function GameCover({ id }: { id: GameEntry['id'] }) {
 
 /** Entry of the games catalog; a game switched off by the admins is shown greyed out. */
 export function GameCard({ game, disabled = false }: { game: GameEntry; disabled?: boolean }) {
+  const { t } = useLang();
   const body = (
     <>
       <div className={disabled ? 'grayscale' : ''}>
@@ -43,16 +45,16 @@ export function GameCard({ game, disabled = false }: { game: GameEntry; disabled
           <Icon.Groups size={14} />
           {game.players}
         </p>
-        <p className="mt-1.5 line-clamp-2 flex-1 text-[13px] leading-snug text-[#aebac1]">{disabled ? 'Momentanément indisponible' : game.short}</p>
+        <p className="mt-1.5 line-clamp-2 flex-1 text-[13px] leading-snug text-[#aebac1]">{disabled ? t('Momentanément indisponible', 'Temporarily unavailable') : game.short}</p>
         {disabled ? (
           <span className="mt-3 flex h-9 items-center justify-center gap-1.5 rounded-full bg-[#2a3942] text-[13px] font-medium text-[#8696a0]">
             <Icon.Block size={16} />
-            Indisponible
+            {t('Indisponible', 'Unavailable')}
           </span>
         ) : (
           <span className="mt-3 flex h-9 items-center justify-center gap-1 rounded-full bg-[#00a884] text-[14px] font-semibold text-[#0b141a]">
             <Icon.Play size={18} />
-            Jouer
+            {t('Jouer', 'Play')}
           </span>
         )}
       </div>
@@ -76,12 +78,17 @@ export function GameCard({ game, disabled = false }: { game: GameEntry; disabled
 /** Every game of the app in two columns, the ones switched off last. */
 export function GamesCatalog() {
   const availability = useGameAvailability();
+  const { t } = useLang();
   const open = GAMES.filter((g) => availability[g.id]);
   const closed = GAMES.filter((g) => !availability[g.id]);
   return (
     <section className="flex flex-col gap-3 pt-4">
       <h2 className="px-1 text-[13px] font-semibold tracking-wide text-[#00a884] uppercase">
-        {open.length > 1 ? `${open.length} jeux disponibles` : open.length === 1 ? '1 jeu disponible' : 'Aucun jeu disponible pour le moment'}
+        {open.length > 1
+          ? t(`${open.length} jeux disponibles`, `${open.length} games available`)
+          : open.length === 1
+            ? t('1 jeu disponible', '1 game available')
+            : t('Aucun jeu disponible pour le moment', 'No games available right now')}
       </h2>
       <div className="grid grid-cols-2 gap-3">
         {open.map((game) => (

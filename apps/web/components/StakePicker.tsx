@@ -9,13 +9,14 @@ import { CustomStake } from './CustomStake';
 import { Icon } from './Icons';
 import { useProfile } from '@/lib/profile';
 import { useStakeConfig } from '@/lib/stakes';
+import { useLang } from '@/lib/i18n';
 
 type Kind = 'none' | Currency;
 
-const KINDS: { id: Kind; label: string }[] = [
-  { id: 'none', label: 'Sans mise' },
-  { id: 'free', label: 'Free' },
-  { id: 'premium', label: 'Premium' },
+const KINDS: { id: Kind; label: [string, string] }[] = [
+  { id: 'none', label: ['Sans mise', 'No stake'] },
+  { id: 'free', label: ['Free', 'Free'] },
+  { id: 'premium', label: ['Premium', 'Premium'] },
 ];
 
 /**
@@ -37,6 +38,7 @@ export function StakePicker({
   const { session, profile, premiumCoins } = useProfile();
   const stakes = useStakeConfig();
   const { gate, notice } = useAdultGate();
+  const { t } = useLang();
   const kinds = freeOnly || !stakes.premiumEnabled ? KINDS.filter((k) => k.id !== 'premium') : KINDS;
   const current = stakeTable(value);
   const [pickedKind, setKind] = useState<Kind>(current?.currency ?? 'none');
@@ -65,7 +67,7 @@ export function StakePicker({
       <div
         className={`grid gap-1 rounded-full bg-[#0b141a]/70 p-1 ${kinds.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}
         role="radiogroup"
-        aria-label="Type de partie"
+        aria-label={t('Type de partie', 'Game type')}
       >
         {kinds.map((k) => (
           <button
@@ -79,21 +81,21 @@ export function StakePicker({
             }`}
           >
             {k.id === 'premium' ? <GemIcon size={16} /> : k.id === 'free' ? <CoinIcon size={16} /> : <Icon.Block size={16} />}
-            {k.label}
+            {t(...k.label)}
           </button>
         ))}
       </div>
 
       {kind === 'none' ? (
-        <p className="px-1 text-[13px] text-[#8696a0]">Partie amicale : personne ne mise, ordinateurs autorisés.</p>
+        <p className="px-1 text-[13px] text-[#8696a0]">{t('Partie amicale : personne ne mise, ordinateurs autorisés.', 'Friendly game: nobody stakes, computer players allowed.')}</p>
       ) : !session ? (
         <p className="flex items-start gap-2 rounded-2xl bg-[#ffbc38]/10 px-3 py-2.5 text-[13px] text-[#ffd279]">
           <Icon.Lock size={16} className="mt-px shrink-0" />
           <span>
             <Link href="/compte" className="font-semibold text-[#00a884]">
-              Connecte-toi
+              {t('Connecte-toi', 'Sign in')}
             </Link>{' '}
-            pour jouer avec mise : les pièces sont liées à ton compte.
+            {t('pour jouer avec mise : les pièces sont liées à ton compte.', 'to play with a stake: coins are tied to your account.')}
           </span>
         </p>
       ) : (
@@ -113,7 +115,7 @@ export function StakePicker({
                   } ${short ? 'opacity-50' : ''}`}
                 >
                   <CoinAmount value={table.stake} premium={premium} size={14} className="text-[15px]" />
-                  {short && <span className="text-[10.5px] text-[#f15c6d]">Solde bas</span>}
+                  {short && <span className="text-[10.5px] text-[#f15c6d]">{t('Solde bas', 'Low balance')}</span>}
                 </button>
               );
             })}
@@ -125,14 +127,14 @@ export function StakePicker({
             players={players}
             initial={custom ? current.stake : undefined}
             selected={custom}
-            action={custom ? 'Modifier' : 'Valider'}
+            action={custom ? t('Modifier', 'Change') : t('Valider', 'Confirm')}
             onSubmit={onChange}
           />
           <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 px-1 text-[13px] text-[#8696a0]">
-            Ton solde <CoinAmount value={balance} premium={premium} size={13} />
+            {t('Ton solde', 'Your balance')} <CoinAmount value={balance} premium={premium} size={13} />
             {current && (
               <>
-                <span>·</span> à {players} joueurs, le gagnant remporte{' '}
+                <span>·</span> {t(`à ${players} joueurs, le gagnant remporte`, `with ${players} players, the winner gets`)}{' '}
                 <CoinAmount value={potSplit(current.stake, players).prize} premium={premium} size={13} className="text-[#25d366]" />
               </>
             )}

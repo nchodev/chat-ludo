@@ -2,7 +2,15 @@ import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { ADULT_REQUIRED, PREMIUM_CLOSED, normalizeProfile, overWalletCap, stakeConfig, type ChatMessageKind, type GameId, type Profile } from '@ludo/engine';
+import {
+  ADULT_REQUIRED,
+  PREMIUM_CLOSED,
+  DEFAULT_REFERRAL_SETTINGS,
+  normalizeProfile,
+  referralDepositBonus,
+  validateReferralSettings,
+  type ReferralSettings,
+  stakeConfig, type AppNotification, type ChatMessageKind, type GameId, type NotificationKind, type Profile } from '@ludo/engine';
 
 const DATABASE_PATH = process.env.DATABASE_PATH ?? './data/ludo.db';
 
@@ -437,7 +445,6 @@ export function openPot(potId: string, tableId: string, currency: Currency, stak
   if (currency === 'premium' && !stakeConfig().premiumEnabled) throw new Error(PREMIUM_CLOSED);
   if (currency === 'premium' && notAdultConfirmed(userIds).length) throw new Error(ADULT_REQUIRED);
   return inTransaction(() => {
-    if (currency === 'premium' && overPremiumCap(userIds).length) throw new Error(overWalletCap(stakeConfig().premiumWalletCap));
     const short = userIds.filter((id) => getWallet(id)[currency] < stake);
     if (short.length) return short;
     for (const id of userIds) moveCoins(id, currency, -stake, 'stake', potId);
@@ -469,6 +476,7 @@ export function settlePot(potId: string, winnerId: number, prize: number): boole
     if (!pot || pot.status !== 'open') return false;
     const total = pot.stake * (JSON.parse(pot.players) as number[]).length;
     moveCoins(winnerId, pot.currency, prize, 'prize', potId);
+    if (pot.currency === 'premium') for (const id of JSON.parse(pot.players) as number[]) countWager(id, pot.stake);
     db.prepare('INSERT INTO coin_ledger (user_id, currency, delta, reason, ref, created_at) VALUES (NULL, ?, ?, ?, ?, ?)').run(
       pot.currency,
       total - prize,
@@ -513,6 +521,7 @@ export function forfeitPot(potId: string): boolean {
         now,
       );
       uncommittedMoves?.push({ userId: id, currency: pot.currency, delta: -pot.stake, reason: 'forfeit', ref: potId });
+      if (pot.currency === 'premium') countWager(id, pot.stake);
     }
     db.prepare('INSERT INTO coin_ledger (user_id, currency, delta, reason, ref, created_at) VALUES (NULL, ?, ?, ?, ?, ?)').run(
       pot.currency,
@@ -579,12 +588,6 @@ export function adultConfirmation(userId: number): { at: number; ip: string | nu
     | { at: number | null; ip: string | null }
     | undefined;
   return row?.at ? { at: row.at, ip: row.ip } : null;
-}
-
-/** The players among `userIds` holding more Premium coins than the cap: they can't stake until they withdraw. */
-export function overPremiumCap(userIds: number[]): number[] {
-  const cap = stakeConfig().premiumWalletCap;
-  return userIds.filter((id) => getWallet(id).premium > cap);
 }
 
 /** The players among `userIds` who haven't certified being 18 or older. */
@@ -669,6 +672,7 @@ export function confirmDeposit(reference: string, providerRef: string): boolean 
     if (!row) return false;
     db.prepare("UPDATE payments SET status = 'succeeded', provider_ref = ?, updated_at = ? WHERE reference = ?").run(providerRef, Date.now(), reference);
     moveCoins(row.user_id, 'premium', row.amount, 'deposit', reference);
+    rewardReferralDeposit(row.user_id, row.amount);
     return true;
   });
 }
@@ -716,7 +720,12 @@ export function requestWithdrawal(
     if (recent.n + amount > limits.perDay) {
       return `Retraits limités à ${limits.perDay.toLocaleString('fr-FR')} F par 24 h (encore ${Math.max(0, limits.perDay - recent.n).toLocaleString('fr-FR')} F possibles).`;
     }
-    if (getWallet(userId).premium < amount) return 'Solde Premium insuffisant.';
+    const { premium } = getWallet(userId);
+    if (premium < amount) return 'Solde Premium insuffisant.';
+    const bonus = premiumBonusOf(userId);
+    if (premium - bonus.locked < amount) {
+      return `${bonus.locked.toLocaleString('fr-FR')} pièces de bonus ne sont pas encore retirables : mise encore ${bonus.wagerDue.toLocaleString('fr-FR')} pièces Premium en parties pour les débloquer (retirable maintenant : ${Math.max(0, premium - bonus.locked).toLocaleString('fr-FR')}).`;
+    }
     const now = Date.now();
     moveCoins(userId, 'premium', -amount, 'withdrawal', reference);
     db.prepare("INSERT INTO payments (reference, user_id, kind, amount, phone, status, created_at, updated_at) VALUES (?, ?, 'withdrawal', ?, ?, 'pending', ?, ?)").run(
@@ -810,6 +819,13 @@ export function pendingWithdrawalCount(): number {
   add('referral_rewarded_at', 'INTEGER');
   add('signup_ip', 'TEXT');
   add('signup_device', 'TEXT');
+  // On the invited account: when its first qualifying deposit paid its inviter, and how much.
+  add('referral_deposit_at', 'INTEGER');
+  add('referral_deposit_bonus', 'INTEGER');
+  add('referral_welcome_bonus', 'INTEGER');
+  // Premium bonus coins that can be staked but not withdrawn yet, and what is left to stake to free them.
+  add('premium_locked', 'INTEGER NOT NULL DEFAULT 0');
+  add('premium_wager_due', 'INTEGER NOT NULL DEFAULT 0');
   db.exec('CREATE INDEX IF NOT EXISTS users_referred_by ON users (referred_by)');
 }
 
@@ -857,7 +873,7 @@ export function progressReferral(
     const ref = `user:${userId}`;
     const referrerCoins = rewarded < rules.maxRewarded && getUser(row.referred_by) ? rules.referrerCoins : 0;
     if (referrerCoins) moveCoins(row.referred_by, 'free', referrerCoins, 'referral', ref);
-    moveCoins(userId, 'free', rules.newcomerCoins, 'referral', ref);
+    if (rules.newcomerCoins) moveCoins(userId, 'free', rules.newcomerCoins, 'referral', ref);
     return { referrerId: row.referred_by, referrerCoins, newcomerCoins: rules.newcomerCoins };
   });
 }
@@ -866,28 +882,242 @@ export interface Referral {
   username: string;
   games: number;
   rewardedAt: number | null;
+  /** Premium bonus the inviter got for this friend's first deposit; null before it. */
+  depositBonus: number | null;
   joinedAt: number;
 }
 
 export function referralsOf(userId: number): Referral[] {
   return (
     db
-      .prepare('SELECT username, referral_games, referral_rewarded_at, created_at FROM users WHERE referred_by = ? ORDER BY created_at DESC LIMIT 100')
-      .all(userId) as { username: string; referral_games: number; referral_rewarded_at: number | null; created_at: number }[]
-  ).map((r) => ({ username: r.username, games: r.referral_games, rewardedAt: r.referral_rewarded_at, joinedAt: r.created_at }));
+      .prepare(
+        'SELECT username, referral_games, referral_rewarded_at, referral_deposit_bonus, created_at FROM users WHERE referred_by = ? ORDER BY created_at DESC LIMIT 100',
+      )
+      .all(userId) as {
+      username: string;
+      referral_games: number;
+      referral_rewarded_at: number | null;
+      referral_deposit_bonus: number | null;
+      created_at: number;
+    }[]
+  ).map((r) => ({
+    username: r.username,
+    games: r.referral_games,
+    rewardedAt: r.referral_rewarded_at,
+    depositBonus: r.referral_deposit_bonus,
+    joinedAt: r.created_at,
+  }));
 }
 
 /** Who invited this player, and how far they are towards the welcome bonus. */
-export function referrerOf(userId: number): { username: string; games: number; rewardedAt: number | null } | null {
+export function referrerOf(userId: number): { username: string; games: number; rewardedAt: number | null; welcomeBonus: number | null } | null {
   const row = db
-    .prepare('SELECT r.username, u.referral_games, u.referral_rewarded_at FROM users u JOIN users r ON r.id = u.referred_by WHERE u.id = ?')
-    .get(userId) as { username: string; referral_games: number; referral_rewarded_at: number | null } | undefined;
-  return row ? { username: row.username, games: row.referral_games, rewardedAt: row.referral_rewarded_at } : null;
+    .prepare(
+      'SELECT r.username, u.referral_games, u.referral_rewarded_at, u.referral_welcome_bonus FROM users u JOIN users r ON r.id = u.referred_by WHERE u.id = ?',
+    )
+    .get(userId) as
+    | { username: string; referral_games: number; referral_rewarded_at: number | null; referral_welcome_bonus: number | null }
+    | undefined;
+  return row
+    ? { username: row.username, games: row.referral_games, rewardedAt: row.referral_rewarded_at, welcomeBonus: row.referral_welcome_bonus }
+    : null;
 }
 
 export function referralEarnings(userId: number): number {
   const row = db.prepare("SELECT COALESCE(SUM(delta), 0) AS n FROM coin_ledger WHERE user_id = ? AND reason = 'referral' AND ref <> ?").get(userId, `user:${userId}`) as { n: number };
   return row.n;
+}
+
+export function referralPremiumEarnings(userId: number): number {
+  const row = db.prepare("SELECT COALESCE(SUM(delta), 0) AS n FROM coin_ledger WHERE user_id = ? AND reason = 'referral_deposit'").get(userId) as { n: number };
+  return row.n;
+}
+
+const REFERRAL_SETTING = 'referral';
+/** Before the Parrainage page: only the first-deposit bonus's switch and percentage were saved. */
+const LEGACY_REFERRAL_BONUS_SETTING = 'referral_bonus';
+
+/** The referral programme as set by the admins (defaults until they change it). */
+export function referralSettings(): ReferralSettings {
+  const saved = getSetting<unknown>(REFERRAL_SETTING);
+  if (saved !== null) {
+    const valid = validateReferralSettings(saved);
+    if (typeof valid !== 'string') return valid;
+    console.error('Réglages de parrainage ignorés :', valid);
+  }
+  const defaults = structuredClone(DEFAULT_REFERRAL_SETTINGS);
+  const legacy = getSetting<{ enabled?: unknown; percent?: unknown }>(LEGACY_REFERRAL_BONUS_SETTING);
+  if (legacy) {
+    const upgraded = validateReferralSettings({ ...defaults, deposit: { ...defaults.deposit, enabled: legacy.enabled, percent: legacy.percent } });
+    if (typeof upgraded !== 'string') return upgraded;
+  }
+  return defaults;
+}
+
+export function setReferralSettings(settings: ReferralSettings) {
+  saveSetting(REFERRAL_SETTING, settings);
+}
+
+export interface ReferralStats {
+  /** Accounts created through an invitation link. */
+  invited: number;
+  /** Invited accounts that played enough games for the Free bonus. */
+  validated: number;
+  /** Invited accounts that made their first deposit. */
+  depositors: number;
+  /** What invited accounts deposited in all, on Wave. */
+  depositedByInvited: number;
+  /** What the programme cost the platform. */
+  cost: { free: number; premiumInviters: number; premiumWelcome: number };
+  /** Premium bonus coins still locked, waiting to be staked, across all players. */
+  lockedPremium: number;
+  topInviters: {
+    id: number;
+    username: string;
+    invited: number;
+    validated: number;
+    depositors: number;
+    freeEarned: number;
+    premiumEarned: number;
+  }[];
+  recent: {
+    id: number;
+    username: string;
+    inviterId: number;
+    inviter: string;
+    joinedAt: number;
+    games: number;
+    validated: boolean;
+    depositBonus: number | null;
+    welcomeBonus: number | null;
+  }[];
+}
+
+/** Figures of the referral programme for the admin panel. */
+export function referralStats(): ReferralStats {
+  const one = (sql: string, ...params: (string | number)[]) => (db.prepare(sql).get(...params) as { n: number | null }).n ?? 0;
+  const topInviters = db
+    .prepare(
+      `SELECT r.id, r.username,
+         COUNT(*) AS invited,
+         SUM(u.referral_rewarded_at IS NOT NULL) AS validated,
+         SUM(u.referral_deposit_at IS NOT NULL) AS depositors,
+         (SELECT COALESCE(SUM(delta), 0) FROM coin_ledger c WHERE c.user_id = r.id AND c.reason = 'referral' AND c.ref <> 'user:' || r.id) AS freeEarned,
+         (SELECT COALESCE(SUM(delta), 0) FROM coin_ledger c WHERE c.user_id = r.id AND c.reason = 'referral_deposit') AS premiumEarned
+       FROM users u JOIN users r ON r.id = u.referred_by
+       GROUP BY r.id ORDER BY depositors DESC, validated DESC, invited DESC LIMIT 20`,
+    )
+    .all() as unknown as ReferralStats['topInviters'];
+  const recent = (
+    db
+      .prepare(
+        `SELECT u.id, u.username, r.id AS inviterId, r.username AS inviter, u.created_at AS joinedAt, u.referral_games AS games,
+           u.referral_rewarded_at AS rewardedAt, u.referral_deposit_bonus AS depositBonus, u.referral_welcome_bonus AS welcomeBonus
+         FROM users u JOIN users r ON r.id = u.referred_by ORDER BY u.created_at DESC LIMIT 30`,
+      )
+      .all() as {
+      id: number;
+      username: string;
+      inviterId: number;
+      inviter: string;
+      joinedAt: number;
+      games: number;
+      rewardedAt: number | null;
+      depositBonus: number | null;
+      welcomeBonus: number | null;
+    }[]
+  ).map(({ rewardedAt, ...r }) => ({ ...r, validated: rewardedAt !== null }));
+  return {
+    invited: one('SELECT COUNT(*) AS n FROM users WHERE referred_by IS NOT NULL'),
+    validated: one('SELECT COUNT(*) AS n FROM users WHERE referred_by IS NOT NULL AND referral_rewarded_at IS NOT NULL'),
+    depositors: one('SELECT COUNT(*) AS n FROM users WHERE referred_by IS NOT NULL AND referral_deposit_at IS NOT NULL'),
+    depositedByInvited: one(
+      "SELECT SUM(p.amount) AS n FROM payments p JOIN users u ON u.id = p.user_id WHERE u.referred_by IS NOT NULL AND p.kind = 'deposit' AND p.status = 'succeeded'",
+    ),
+    cost: {
+      free: one("SELECT SUM(delta) AS n FROM coin_ledger WHERE user_id IS NOT NULL AND currency = 'free' AND reason = 'referral'"),
+      premiumInviters: -one("SELECT SUM(delta) AS n FROM coin_ledger WHERE user_id IS NULL AND reason = 'referral_deposit'"),
+      premiumWelcome: -one("SELECT SUM(delta) AS n FROM coin_ledger WHERE user_id IS NULL AND reason = 'referral_welcome'"),
+    },
+    lockedPremium: one('SELECT SUM(MIN(premium_locked, premium_coins)) AS n FROM users WHERE premium_wager_due > 0'),
+    topInviters,
+    recent,
+  };
+}
+
+/**
+ * An invited player's first deposit, whatever its amount, once per invited player:
+ * the inviter (for `maxRewarded` friends at most, never when banned) and the invited player each get
+ * the admins' percentage of it, capped at `maxBonus`, locked until staked, and never over the Premium
+ * wallet cap. Nothing happens while the admins have switched the bonus off. Call inside the deposit's transaction.
+ */
+function rewardReferralDeposit(userId: number, amount: number) {
+  const settings = referralSettings().deposit;
+  const bonus = settings.enabled ? referralDepositBonus(amount, settings.percent, settings.maxBonus) : 0;
+  if (!bonus) return;
+  const row = db.prepare('SELECT referred_by, referral_deposit_at FROM users WHERE id = ?').get(userId) as
+    | { referred_by: number | null; referral_deposit_at: number | null }
+    | undefined;
+  if (!row?.referred_by || row.referral_deposit_at !== null) return;
+  const inviterId = row.referred_by;
+  const inviter = db.prepare('SELECT banned_at FROM users WHERE id = ?').get(inviterId) as { banned_at: number | null } | undefined;
+  const paid = (db.prepare('SELECT COUNT(*) AS n FROM users WHERE referred_by = ? AND referral_deposit_bonus > 0').get(inviterId) as { n: number }).n;
+  const inviterBonus = inviter && !inviter.banned_at && paid < settings.maxRewarded ? capToWallet(inviterId, bonus) : 0;
+  const welcomeBonus = capToWallet(userId, bonus);
+  db.prepare('UPDATE users SET referral_deposit_at = ?, referral_deposit_bonus = ?, referral_welcome_bonus = ? WHERE id = ?').run(
+    Date.now(),
+    inviterBonus,
+    welcomeBonus,
+    userId,
+  );
+  const ref = `user:${userId}`;
+  if (inviterBonus) grantLockedBonus(inviterId, inviterBonus, settings.wagerMultiplier, 'referral_deposit', ref);
+  if (welcomeBonus) grantLockedBonus(userId, welcomeBonus, settings.wagerMultiplier, 'referral_welcome', ref);
+}
+
+/** As much of `bonus` as fits under the Premium wallet cap. */
+function capToWallet(userId: number, bonus: number): number {
+  return Math.min(bonus, Math.max(0, stakeConfig().premiumWalletCap - getWallet(userId).premium));
+}
+
+/** Credits Premium bonus coins that must be staked before they can be withdrawn. Call inside a transaction. */
+function grantLockedBonus(userId: number, amount: number, wagerMultiplier: number, reason: string, ref: string) {
+  moveCoins(userId, 'premium', amount, reason, ref);
+  db.prepare('UPDATE users SET premium_locked = premium_locked + ?, premium_wager_due = premium_wager_due + ? WHERE id = ?').run(
+    amount,
+    amount * wagerMultiplier,
+    userId,
+  );
+  // The platform pays the bonus: booked apart from commissions, so revenue figures stay true.
+  db.prepare("INSERT INTO coin_ledger (user_id, currency, delta, reason, ref, created_at) VALUES (NULL, 'premium', ?, ?, ?, ?)").run(
+    -amount,
+    reason,
+    ref,
+    Date.now(),
+  );
+}
+
+/**
+ * A Premium stake of a game that went to the end (won, lost or forfeited, never refunded) counts
+ * towards freeing the player's locked bonus. Once enough was staked, the bonus is free; until then,
+ * coins lost in games shrink the locked part, which can't exceed the balance. Call inside a transaction.
+ */
+function countWager(userId: number, stake: number) {
+  db.prepare(
+    `UPDATE users SET
+       premium_wager_due = MAX(0, premium_wager_due - ?),
+       premium_locked = CASE WHEN premium_wager_due - ? <= 0 THEN 0 ELSE MIN(premium_locked, premium_coins) END
+     WHERE id = ? AND premium_wager_due > 0`,
+  ).run(stake, stake, userId);
+}
+
+/** Premium bonus coins the player can stake but not withdraw yet, and what is left to stake to free them. */
+export function premiumBonusOf(userId: number): { locked: number; wagerDue: number } {
+  const row = db.prepare('SELECT premium_locked, premium_wager_due, premium_coins FROM users WHERE id = ?').get(userId) as
+    | { premium_locked: number; premium_wager_due: number; premium_coins: number }
+    | undefined;
+  if (!row || row.premium_wager_due <= 0) return { locked: 0, wagerDue: 0 };
+  return { locked: Math.min(row.premium_locked, row.premium_coins), wagerDue: row.premium_wager_due };
 }
 
 /** Pots of games lost to a server restart: their players get their stakes back. */
@@ -945,6 +1175,102 @@ export function platformRevenue(): Wallet {
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* Notification centre (the bell)                                      */
+/* ------------------------------------------------------------------ */
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- NULL for an announcement sent by the admins to every player.
+    user_id INTEGER REFERENCES users (id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    url TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS notifications_user ON notifications (user_id, id DESC);
+`);
+if (!(db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).some((c) => c.name === 'notifications_seen_id')) {
+  // The newest notification id the player had when they last opened the bell.
+  db.exec('ALTER TABLE users ADD COLUMN notifications_seen_id INTEGER NOT NULL DEFAULT 0');
+}
+
+/** Personal notifications kept per player; older ones are dropped. */
+const MAX_NOTIFICATIONS_PER_USER = 200;
+
+export interface NewNotification {
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  url?: string | null;
+}
+
+const NOTIFICATION_COLUMNS = 'id, kind, title, body, url, created_at AS createdAt';
+
+/** Stores a notification for one player, or for everyone (`userId` null: an announcement). */
+export function addNotification(userId: number | null, n: NewNotification): AppNotification {
+  const createdAt = Date.now();
+  const result = db
+    .prepare('INSERT INTO notifications (user_id, kind, title, body, url, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(userId, n.kind, n.title, n.body, n.url ?? null, createdAt);
+  const id = Number(result.lastInsertRowid);
+  if (userId !== null) {
+    db.prepare(
+      'DELETE FROM notifications WHERE user_id = ? AND id <= (SELECT id FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?)',
+    ).run(userId, userId, MAX_NOTIFICATIONS_PER_USER);
+  }
+  return { id, kind: n.kind, title: n.title, body: n.body, url: n.url ?? null, createdAt };
+}
+
+/** A player's own notifications, and the announcements sent since they joined. */
+const VISIBLE_TO = '(user_id = ? OR (user_id IS NULL AND created_at >= (SELECT created_at FROM users WHERE id = ?)))';
+
+/** Newest first; `before` (an id) loads the next page. */
+export function notificationsOf(userId: number, limit = 40, before?: number): AppNotification[] {
+  return db
+    .prepare(`SELECT ${NOTIFICATION_COLUMNS} FROM notifications WHERE ${VISIBLE_TO} AND id < ? ORDER BY id DESC LIMIT ?`)
+    .all(userId, userId, before ?? Number.MAX_SAFE_INTEGER, limit) as unknown as AppNotification[];
+}
+
+export function notificationsSeenId(userId: number): number {
+  return (db.prepare('SELECT notifications_seen_id AS n FROM users WHERE id = ?').get(userId) as { n: number } | undefined)?.n ?? 0;
+}
+
+export function unreadNotificationCount(userId: number): number {
+  return (
+    db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE ${VISIBLE_TO} AND id > ?`).get(userId, userId, notificationsSeenId(userId)) as { n: number }
+  ).n;
+}
+
+/** The player opened the bell: everything up to now is seen. */
+export function markNotificationsSeen(userId: number) {
+  db.prepare(`UPDATE users SET notifications_seen_id = MAX(notifications_seen_id, COALESCE((SELECT MAX(id) FROM notifications WHERE ${VISIBLE_TO}), 0)) WHERE id = ?`).run(
+    userId,
+    userId,
+    userId,
+  );
+}
+
+export interface Announcement extends AppNotification {
+  /** Players who have opened the bell since it was sent. */
+  seenBy: number;
+}
+
+export function listAnnouncements(limit = 50): Announcement[] {
+  return db
+    .prepare(
+      `SELECT ${NOTIFICATION_COLUMNS}, (SELECT COUNT(*) FROM users u WHERE u.notifications_seen_id >= n.id) AS seenBy
+       FROM notifications n WHERE user_id IS NULL ORDER BY id DESC LIMIT ?`,
+    )
+    .all(limit) as unknown as Announcement[];
+}
+
+export function deleteAnnouncement(id: number): boolean {
+  return db.prepare('DELETE FROM notifications WHERE id = ? AND user_id IS NULL').run(id).changes > 0;
+}
+
 export interface PushSubscriptionRow {
   endpoint: string;
   p256dh: string;
@@ -957,6 +1283,11 @@ export function savePushSubscription(userId: number, sub: PushSubscriptionRow) {
     `INSERT INTO push_subscriptions (endpoint, user_id, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?)
      ON CONFLICT (endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, created_at = excluded.created_at`,
   ).run(sub.endpoint, userId, sub.p256dh, sub.auth, Date.now());
+}
+
+/** Players with at least one device subscribed to push notifications. */
+export function usersWithPushSubscriptions(): number[] {
+  return (db.prepare('SELECT DISTINCT user_id FROM push_subscriptions').all() as { user_id: number }[]).map((r) => r.user_id);
 }
 
 export function listPushSubscriptions(userId: number): PushSubscriptionRow[] {

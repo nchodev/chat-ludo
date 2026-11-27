@@ -17,6 +17,7 @@ import { refreshProfile, useProfile } from '@/lib/profile';
 import { useDuelRoom, type DuelActions as Actions } from '@/lib/useDuelRoom';
 import { GameButton, ResultHeader, useTick } from './DuelFrame';
 import { DUEL_UI, type DuelUi } from './duelGames';
+import { tr } from '@/lib/i18n';
 
 function Centered({ children }: { children: React.ReactNode }) {
   return (
@@ -61,12 +62,12 @@ export function DuelRoomPage({ kind }: { kind: DuelGame }) {
           <span className="mx-auto grid w-fit place-items-center">{ui.logo(72)}</span>
           <h1 className="mt-3 text-2xl font-bold">{ui.challengeTitle}</h1>
           <p className="mt-1 text-white/60">
-            Salon <span className="font-mono font-bold tracking-widest text-white">{code}</span>
+            {tr('Salon', 'Room')} <span className="font-mono font-bold tracking-widest text-white">{code}</span>
           </p>
         </div>
         <div className="rounded-3xl bg-[#1f2c33] p-4">
           <NameForm
-            submitLabel="Rejoindre la partie"
+            submitLabel={tr('Rejoindre la partie', 'Join the game')}
             onSubmit={(n) => {
               storeName(n);
               setName(n);
@@ -78,24 +79,24 @@ export function DuelRoomPage({ kind }: { kind: DuelGame }) {
   }
 
   if (joinError) {
-    const notFound = /introuvable/i.test(joinError);
+    const notFound = /introuvable|not found/i.test(joinError);
     return (
       <div className="min-h-dvh bg-[#0b141a] text-[#e9edef]">
-        <AppBar title={ui.roomTitle} backHref={`${ui.base}/salon`} backText="Salons" backLabel="Retour aux salons" />
+        <AppBar title={ui.roomTitle} backHref={`${ui.base}/salon`} backText={tr('Salons', 'Rooms')} backLabel={tr('Retour aux salons', 'Back to rooms')} />
         <main className="mx-auto flex max-w-lg flex-col items-center px-4 pt-12 text-center">
           <span className="grid size-24 place-items-center rounded-full bg-[#1f2c33] text-[#8696a0]">
             {notFound ? <Icon.Search size={46} /> : <Icon.Block size={46} />}
           </span>
-          <h1 className="mt-5 text-[22px] font-semibold">{notFound ? 'Salon introuvable' : 'Impossible de rejoindre'}</h1>
-          <p className="mt-1.5 max-w-xs text-[14.5px] text-[#8696a0]">{notFound ? `Aucun salon ouvert avec le code ${code}.` : joinError}</p>
+          <h1 className="mt-5 text-[22px] font-semibold">{notFound ? tr('Salon introuvable', 'Room not found') : tr('Impossible de rejoindre', 'Could not join')}</h1>
+          <p className="mt-1.5 max-w-xs text-[14.5px] text-[#8696a0]">{notFound ? tr(`Aucun salon ouvert avec le code ${code}.`, `No open room with code ${code}.`) : joinError}</p>
           <div className="mt-8 flex w-full flex-col gap-2">
             <Link href={`${ui.base}/salon`} className="flex h-12 items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a]">
               <Icon.Login size={20} />
-              Entrer un autre code
+              {tr('Entrer un autre code', 'Enter another code')}
             </Link>
             <Link href={`${ui.base}/rapide`} className="flex h-12 items-center justify-center gap-2 rounded-full border border-[#2a3942] text-[15px] font-semibold text-[#00a884]">
               <Icon.Bolt size={20} />
-              Partie rapide
+              {tr('Partie rapide', 'Quick match')}
             </Link>
           </div>
         </main>
@@ -107,7 +108,7 @@ export function DuelRoomPage({ kind }: { kind: DuelGame }) {
     return (
       <Centered>
         <span className="mx-auto size-12 animate-spin rounded-full border-4 border-[#00a884]/20 border-t-[#00a884]" />
-        <p className="text-[18px] font-medium">{connected ? 'Connexion au salon' : 'Serveur de jeu injoignable'}</p>
+        <p className="text-[18px] font-medium">{connected ? tr('Connexion au salon', 'Joining the room') : tr('Serveur de jeu injoignable', 'Game server unreachable')}</p>
       </Centered>
     );
   }
@@ -133,11 +134,11 @@ function StakeLine({ stake }: { stake: RoomStake }) {
   return (
     <span className="flex items-center justify-center gap-3 text-[13.5px]">
       <span className="flex items-center gap-1.5">
-        Cagnotte <CoinAmount value={stake.pot} premium={premium} size={15} />
+        {tr('Cagnotte', 'Pot')} <CoinAmount value={stake.pot} premium={premium} size={15} />
       </span>
       <span className="text-white/30">·</span>
       <span className="flex items-center gap-1.5">
-        Gain <CoinAmount value={stake.prize} premium={premium} size={15} className="text-[#25d366]" />
+        {tr('Gain', 'Prize')} <CoinAmount value={stake.prize} premium={premium} size={15} className="text-[#25d366]" />
       </span>
     </span>
   );
@@ -149,10 +150,14 @@ function Lobby({ room, actions, onQuit }: { room: DuelRoomViewOf<DuelGame>; acti
   const issues = room.players.filter((p) => p.stakeIssue);
   return (
     <div className="min-h-dvh bg-[#0b141a] text-[#e9edef]">
-      <AppBar title={ui.roomTitle} subtitle={room.isHost ? 'Tu es l’hôte' : 'En attente du lancement'} backHref={`${ui.base}/salon`} backText="Salons" backLabel="Quitter le salon" />
+      <AppBar title={ui.roomTitle} subtitle={room.isHost ? tr('Tu es l’hôte', 'You’re the host') : tr('En attente du lancement', 'Waiting for the start')}
+        backHref={`${ui.base}/salon`}
+        backText={tr('Salons', 'Rooms')}
+        backLabel={tr('Quitter le salon', 'Leave the room')}
+      />
       <main className="mx-auto flex max-w-lg flex-col gap-4 px-4 pt-4 pb-36">
         <section className="rounded-[28px] bg-[#1f2c33] p-4 text-center">
-          <p className="text-[13px] text-[#8696a0]">Code du salon</p>
+          <p className="text-[13px] text-[#8696a0]">{tr('Code du salon', 'Room code')}</p>
           <p className="mt-1 font-mono text-[40px] leading-none font-bold tracking-[0.2em]">{room.code}</p>
           <div className="mt-4">
             <InviteButtons code={room.code} path={`${ui.base}/salon/${room.code}`} game={ui.inviteGame} />
@@ -171,21 +176,21 @@ function Lobby({ room, actions, onQuit }: { room: DuelRoomViewOf<DuelGame>; acti
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-1.5 text-[15.5px] font-medium">
-                      <span className="truncate">{p ? p.name : 'En attente d’un adversaire…'}</span>
-                      {p && room.you === i && <span className="rounded-full bg-[#00a884]/15 px-1.5 text-[11px] text-[#00a884]">Toi</span>}
+                      <span className="truncate">{p ? p.name : tr('En attente d’un adversaire…', 'Waiting for an opponent…')}</span>
+                      {p && room.you === i && <span className="rounded-full bg-[#00a884]/15 px-1.5 text-[11px] text-[#00a884]">{tr('Toi', 'You')}</span>}
                     </span>
                     <span className="block text-[12.5px] text-[#8696a0]">
                       {!p
-                        ? 'Partage le code ou le lien'
+                        ? tr('Partage le code ou le lien', 'Share the code or the link')
                         : p.stakeIssue === 'guest'
-                          ? 'Doit se connecter pour miser'
+                          ? tr('Doit se connecter pour miser', 'Must sign in to stake')
                           : p.stakeIssue === 'funds'
-                            ? 'Solde insuffisant pour la mise'
+                            ? tr('Solde insuffisant pour la mise', 'Not enough coins for the stake')
                             : p.isHost
-                              ? 'Hôte'
+                              ? tr('Hôte', 'Host')
                               : p.connected
-                                ? 'Prêt'
-                                : 'Déconnecté'}
+                                ? tr('Prêt', 'Ready')
+                                : tr('Déconnecté', 'Disconnected')}
                     </span>
                   </span>
                   {p?.isHost && <Icon.Star size={20} className="text-amber-300" />}
@@ -196,27 +201,27 @@ function Lobby({ room, actions, onQuit }: { room: DuelRoomViewOf<DuelGame>; acti
           {room.spectators > 0 && (
             <p className="flex items-center gap-2 px-3 pb-2 text-[13px] text-[#8696a0]">
               <Icon.Eye size={16} />
-              {room.spectators} spectateur{room.spectators > 1 ? 's' : ''}
+              {tr(`${room.spectators} spectateur${room.spectators > 1 ? 's' : ''}`, `${room.spectators} spectator${room.spectators > 1 ? 's' : ''}`)}
             </p>
           )}
         </section>
 
         {room.isHost ? (
           <section className="rounded-[28px] bg-[#1f2c33] p-4">
-            <p className="mb-2 px-1 text-[13px] font-medium text-[#00a884]">Type de partie</p>
+            <p className="mb-2 px-1 text-[13px] font-medium text-[#00a884]">{tr('Type de partie', 'Game type')}</p>
             <StakePicker value={room.wager} onChange={actions.setWager} players={2} />
           </section>
         ) : room.wager ? (
           <p className="flex items-center gap-3 rounded-2xl bg-amber-500/10 px-4 py-3 text-[13.5px] text-amber-200">
             <Icon.Info size={20} className="shrink-0" />
-            Partie avec mise : ta mise sera prise au lancement par l’hôte.
+            {tr('Partie avec mise : ta mise sera prise au lancement par l’hôte.', 'Staked game: your stake is taken when the host starts the game.')}
           </p>
         ) : null}
         {!room.isHost && room.wager?.startsWith('premium-') && <AdultRequiredBanner />}
 
         <p className="flex items-start gap-3 px-2 text-[13px] text-[#8696a0]">
           <Icon.Timer size={18} className="mt-px shrink-0" />
-          {ui.clockMs / 60_000} minutes de réflexion par joueur. {ui.sidesText}
+          {tr(`${ui.clockMs / 60_000} minutes de réflexion par joueur.`, `${ui.clockMs / 60_000} minutes of thinking time per player.`)} {ui.sidesText}
         </p>
       </main>
 
@@ -230,16 +235,20 @@ function Lobby({ room, actions, onQuit }: { room: DuelRoomViewOf<DuelGame>; acti
               className="flex h-14 items-center justify-center gap-2 rounded-full bg-[#00a884] text-[16px] font-semibold text-[#0b141a] transition active:scale-[0.98] disabled:bg-[#2a3942] disabled:text-[#8696a0]"
             >
               <Icon.Play size={24} />
-              {ready ? (room.wager ? 'Lancer et prendre les mises' : 'Lancer la partie') : 'En attente d’un adversaire'}
+              {ready
+                ? room.wager
+                  ? tr('Lancer et prendre les mises', 'Start and take the stakes')
+                  : tr('Lancer la partie', 'Start the game')
+                : tr('En attente d’un adversaire', 'Waiting for an opponent')}
             </button>
           ) : (
             <p className="flex h-14 items-center justify-center gap-2 rounded-full bg-[#1f2c33] text-[15px] text-[#aebac1]">
               <span className="size-4 animate-spin rounded-full border-2 border-[#00a884]/30 border-t-[#00a884]" />
-              L’hôte va lancer la partie
+              {tr('L’hôte va lancer la partie', 'The host will start the game')}
             </p>
           )}
           <button type="button" onClick={onQuit} className="h-11 text-[14px] font-medium text-[#8696a0]">
-            Quitter le salon
+            {tr('Quitter le salon', 'Leave the room')}
           </button>
         </div>
       </div>
@@ -258,7 +267,7 @@ function OnlineGame({ room, receivedAt, actions, onQuit }: { room: DuelRoomViewO
   const bottomSide: Side = you ?? 'white';
   const nameOf = (side: Side) => {
     const index = room.colors?.indexOf(side) ?? -1;
-    return index >= 0 ? room.players[index]?.name ?? 'Joueur parti' : 'Joueur parti';
+    return index >= 0 ? room.players[index]?.name ?? tr('Joueur parti', 'Player left') : tr('Joueur parti', 'Player left');
   };
   const seatOf = (side: Side) => room.players[room.colors?.indexOf(side) ?? -1];
   const clockOf = (side: Side) => {
@@ -286,12 +295,12 @@ function OnlineGame({ room, receivedAt, actions, onQuit }: { room: DuelRoomViewO
   const banner = offerFromOpponent ? (
     <div className="pop-in flex items-center gap-2 rounded-2xl bg-[#53bdeb]/15 px-3 py-2">
       <Icon.Handshake size={20} className="shrink-0 text-[#53bdeb]" />
-      <span className="min-w-0 flex-1 text-[13.5px]">{nameOf(otherSide(you!))} propose la nulle.</span>
+      <span className="min-w-0 flex-1 text-[13.5px]">{tr(`${nameOf(otherSide(you!))} propose la nulle.`, `${nameOf(otherSide(you!))} offers a draw.`)}</span>
       <button type="button" onClick={actions.declineDraw} className="h-8 rounded-full px-3 text-[13px] font-semibold text-[#aebac1]">
-        Refuser
+        {tr('Refuser', 'Decline')}
       </button>
       <button type="button" onClick={actions.draw} className="h-8 rounded-full bg-[#53bdeb] px-3 text-[13px] font-semibold text-[#0b141a]">
-        Accepter
+        {tr('Accepter', 'Accept')}
       </button>
     </div>
   ) : room.stake && playing ? (
@@ -301,7 +310,7 @@ function OnlineGame({ room, receivedAt, actions, onQuit }: { room: DuelRoomViewO
   ) : !you && playing ? (
     <p className="flex items-center justify-center gap-2 text-[13px] text-[#8696a0]">
       <Icon.Eye size={16} />
-      Tu regardes la partie
+      {tr('Tu regardes la partie', 'You’re watching the game')}
     </p>
   ) : null;
 
@@ -311,10 +320,14 @@ function OnlineGame({ room, receivedAt, actions, onQuit }: { room: DuelRoomViewO
   return (
     <>
       <View
-        title={room.matched ? 'Partie rapide' : `Salon ${room.code}`}
-        subtitle={room.spectators ? `${room.spectators} spectateur${room.spectators > 1 ? 's' : ''}` : ui.long}
+        title={room.matched ? tr('Partie rapide', 'Quick match') : tr(`Salon ${room.code}`, `Room ${room.code}`)}
+        subtitle={
+          room.spectators
+            ? tr(`${room.spectators} spectateur${room.spectators > 1 ? 's' : ''}`, `${room.spectators} spectator${room.spectators > 1 ? 's' : ''}`)
+            : ui.long
+        }
         onBack={() => (playing && you ? setConfirm('quit') : onQuit())}
-        backLabel="Quitter la partie"
+        backLabel={tr('Quitter la partie', 'Leave the game')}
         state={game}
         top={{ name: nameOf(otherSide(bottomSide)), side: otherSide(bottomSide), clockMs: clockOf(otherSide(bottomSide)), connected: seatOf(otherSide(bottomSide))?.connected ?? false }}
         bottom={{ name: nameOf(bottomSide), side: bottomSide, clockMs: clockOf(bottomSide), connected: seatOf(bottomSide)?.connected ?? false, you: !!you }}
@@ -326,10 +339,10 @@ function OnlineGame({ room, receivedAt, actions, onQuit }: { room: DuelRoomViewO
           playing && you ? (
             <>
               <GameButton onClick={actions.draw} disabled={youOffered} icon={<Icon.Handshake size={18} />}>
-                {youOffered ? 'Nulle proposée' : offerFromOpponent ? 'Accepter la nulle' : 'Proposer la nulle'}
+                {youOffered ? tr('Nulle proposée', 'Draw offered') : offerFromOpponent ? tr('Accepter la nulle', 'Accept the draw') : tr('Proposer la nulle', 'Offer a draw')}
               </GameButton>
               <GameButton onClick={() => setConfirm('resign')} tone="danger" icon={<Icon.Flag size={18} />}>
-                Abandonner
+                {tr('Abandonner', 'Resign')}
               </GameButton>
             </>
           ) : undefined
@@ -340,13 +353,13 @@ function OnlineGame({ room, receivedAt, actions, onQuit }: { room: DuelRoomViewO
             {room.stake && (
               <div className="mt-4 rounded-2xl bg-[#0b141a]/60 px-4 py-3 text-center text-[14px]">
                 {!payout ? (
-                  'Règlement de la cagnotte…'
+                  tr('Règlement de la cagnotte…', 'Paying out the pot…')
                 ) : payout.winner ? (
                   <span className="flex flex-wrap items-center justify-center gap-1.5">
-                    {payout.winner} remporte <CoinAmount value={payout.amount} premium={premium} size={16} className="text-[#25d366]" />
+                    {tr(`${payout.winner} remporte`, `${payout.winner} wins`)} <CoinAmount value={payout.amount} premium={premium} size={16} className="text-[#25d366]" />
                   </span>
                 ) : (
-                  'Partie nulle : chaque mise a été remboursée.'
+                  tr('Partie nulle : chaque mise a été remboursée.', 'Draw: every stake was refunded.')
                 )}
               </div>
             )}
@@ -358,7 +371,7 @@ function OnlineGame({ room, receivedAt, actions, onQuit }: { room: DuelRoomViewO
                   className="flex h-12 items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a]"
                 >
                   <Icon.Refresh size={20} />
-                  Rejouer à cette table
+                  {tr('Rejouer à cette table', 'Play again at this table')}
                 </Link>
               ) : you ? (
                 <button
@@ -369,32 +382,34 @@ function OnlineGame({ room, receivedAt, actions, onQuit }: { room: DuelRoomViewO
                 >
                   <Icon.Refresh size={20} />
                   {opponentGone
-                    ? 'Ton adversaire est parti'
+                    ? tr('Ton adversaire est parti', 'Your opponent has left')
                     : rematchAsked
-                      ? 'En attente de ton adversaire…'
+                      ? tr('En attente de ton adversaire…', 'Waiting for your opponent…')
                       : opponentAsked
-                        ? 'Accepter la revanche'
+                        ? tr('Accepter la revanche', 'Accept the rematch')
                         : room.stake
-                          ? `Revanche · nouvelle mise de ${room.stake.stake}`
-                          : 'Revanche'}
+                          ? tr(`Revanche · nouvelle mise de ${room.stake.stake}`, `Rematch · new stake of ${room.stake.stake}`)
+                          : tr('Revanche', 'Rematch')}
                 </button>
               ) : null}
               <button type="button" onClick={onQuit} className="flex h-12 items-center justify-center gap-2 rounded-full border border-[#2a3942] text-[15px] font-semibold">
                 <Icon.Close size={20} />
-                Quitter
+                {tr('Quitter', 'Leave')}
               </button>
             </div>
           </>
         }
       />
-      <Sheet open={confirm !== null} title={confirm === 'resign' ? 'Abandonner la partie ?' : 'Quitter la partie ?'} onClose={() => setConfirm(null)}>
+      <Sheet open={confirm !== null} title={confirm === 'resign' ? tr('Abandonner la partie ?', 'Resign the game?') : tr('Quitter la partie ?', 'Leave the game?')} onClose={() => setConfirm(null)}>
         <p className="text-[14px] text-[#aebac1]">
-          {confirm === 'resign' ? 'Ton adversaire remportera la partie.' : 'Quitter maintenant compte comme un abandon : ton adversaire gagne.'}
-          {room.stake && ' Ta mise sera perdue.'}
+          {confirm === 'resign'
+            ? tr('Ton adversaire remportera la partie.', 'Your opponent will win the game.')
+            : tr('Quitter maintenant compte comme un abandon : ton adversaire gagne.', 'Leaving now counts as resigning: your opponent wins.')}
+          {room.stake && tr(' Ta mise sera perdue.', ' Your stake will be lost.')}
         </p>
         <div className="mt-4 grid grid-cols-2 gap-2 pb-1">
           <button type="button" onClick={() => setConfirm(null)} className="h-12 rounded-full border border-[#2a3942] text-[15px] font-semibold">
-            Continuer
+            {tr('Continuer', 'Keep playing')}
           </button>
           <button
             type="button"
@@ -405,7 +420,7 @@ function OnlineGame({ room, receivedAt, actions, onQuit }: { room: DuelRoomViewO
             }}
             className="h-12 rounded-full bg-[#f15c6d] text-[15px] font-semibold text-white"
           >
-            {confirm === 'resign' ? 'Abandonner' : 'Quitter'}
+            {confirm === 'resign' ? tr('Abandonner', 'Resign') : tr('Quitter', 'Leave')}
           </button>
         </div>
       </Sheet>

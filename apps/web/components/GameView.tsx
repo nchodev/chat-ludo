@@ -17,6 +17,7 @@ import { boardTurn, campShownAs, shiftPalette, shownColor, usePreferredColor, vi
 import { ColorPreference } from './ColorPreference';
 import { COLOR_LABEL, describeEvent } from '@/lib/labels';
 import { sfx } from '@/lib/sound';
+import { tr, useLang } from '@/lib/i18n';
 import type { useReactionBubbles } from '@/lib/reactions';
 import { useGameProgress } from '@/lib/useGameProgress';
 import { ReactionButton } from './ReactionPicker';
@@ -78,7 +79,7 @@ function useTimeLeft(endsAt: number | null) {
 
 function TimeoutDots({ count }: { count: number }) {
   return (
-    <span className="inline-flex items-center gap-0.5" aria-label={`${count} temps dépassé(s) sur ${MAX_TIMEOUTS}`}>
+    <span className="inline-flex items-center gap-0.5" aria-label={tr(`${count} temps dépassé(s) sur ${MAX_TIMEOUTS}`, `${count} of ${MAX_TIMEOUTS} timeouts`)}>
       {Array.from({ length: MAX_TIMEOUTS }, (_, i) => (
         <span key={i} className={`size-1.5 rounded-full ${i < count ? 'bg-red-400' : 'bg-white/20'}`} />
       ))}
@@ -135,6 +136,7 @@ export function GameView({
 }: GameViewProps) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [lookOpen, setLookOpen] = useState(false);
+  const { t } = useLang();
   const { board: baseTheme, dice: diceStyle, pawn: pawnStyle } = useAppearance();
   const shift = viewShift(you, usePreferredColor());
   const turn = boardTurn(you);
@@ -229,7 +231,7 @@ export function GameView({
       active={!isOver && current.color === color}
       winner={state.winners.includes(color)}
       align={align}
-      teamLabel={state.rules.teams ? `équipe ${label(color)}-${label(TEAMMATE[color])}` : undefined}
+      teamLabel={state.rules.teams ? t(`équipe ${label(color)}-${label(TEAMMATE[color])}`, `team ${label(color)}-${label(TEAMMATE[color])}`) : undefined}
       palette={palette}
       bubble={reactions.bubbles[color]}
       bubbleSide={corner === 'red' || corner === 'green' ? 'below' : 'above'}
@@ -238,27 +240,27 @@ export function GameView({
   };
 
   const headline = isOver
-    ? 'Partie terminée'
+    ? t('Partie terminée', 'Game over')
     : autoplay === current.color
       ? canAct
-        ? 'Temps écoulé : l’ordi joue pour toi'
-        : `Temps écoulé : l’ordi joue pour ${current.name}`
+        ? t('Temps écoulé : l’ordi joue pour toi', 'Time’s up: the computer plays for you')
+        : t(`Temps écoulé : l’ordi joue pour ${current.name}`, `Time’s up: the computer plays for ${current.name}`)
       : canAct
       ? state.phase === 'roll'
-        ? 'À toi : lance le dé !'
-        : 'À toi : choisis un pion'
-      : `${current.name} joue…`;
+        ? t('À toi : lance le dé !', 'Your turn: roll the die!')
+        : t('À toi : choisis un pion', 'Your turn: pick a pawn')
+      : t(`${current.name} joue…`, `${current.name} is playing…`);
 
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <div className="flex w-full flex-col gap-2" style={{ maxWidth: 'max(300px, min(100%, calc(100dvh - 300px)))' }}>
         <header className="flex items-center gap-2">
-          <BackButton onClick={onQuit} label="Quitter la partie" compact />
+          <BackButton onClick={onQuit} label={t('Quitter la partie', 'Leave the game')} compact />
           <div className="min-w-0 flex-1 text-center text-sm font-bold tracking-[0.2em] text-white/80">{title}</div>
-          <button type="button" className="icon-btn" aria-label="Apparence" onClick={() => setLookOpen(true)}>
+          <button type="button" className="icon-btn" aria-label={t('Apparence', 'Appearance')} onClick={() => setLookOpen(true)}>
             🎨
           </button>
-          <button type="button" className="icon-btn" aria-label="Comment jouer" onClick={() => setHelpOpen(true)}>
+          <button type="button" className="icon-btn" aria-label={t('Comment jouer', 'How to play')} onClick={() => setHelpOpen(true)}>
             ?
           </button>
           <SoundToggle />
@@ -337,15 +339,18 @@ export function GameView({
               <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-red-200/90">
                 <TimeoutDots count={currentTimeouts} />
                 {canAct
-                  ? `Tour manqué ${currentTimeouts}/${MAX_TIMEOUTS} : à ${MAX_TIMEOUTS} de suite, tu perds.`
-                  : `Tour manqué ${currentTimeouts}/${MAX_TIMEOUTS}`}
+                  ? t(
+                      `Tour manqué ${currentTimeouts}/${MAX_TIMEOUTS} : à ${MAX_TIMEOUTS} de suite, tu perds.`,
+                      `Missed turn ${currentTimeouts}/${MAX_TIMEOUTS}: ${MAX_TIMEOUTS} in a row and you lose.`,
+                    )
+                  : t(`Tour manqué ${currentTimeouts}/${MAX_TIMEOUTS}`, `Missed turn ${currentTimeouts}/${MAX_TIMEOUTS}`)}
               </p>
             )}
             <p key={`${state.rollId}-${state.lastEvent?.type}`} className="pop-in text-[13px] leading-snug text-white/80">
               {describeEvent(state)}
             </p>
             {state.rules.teams && moveColor !== current.color && !isOver && (
-              <p className="mt-0.5 text-xs text-white/60">Tu joues pour {label(moveColor)}.</p>
+              <p className="mt-0.5 text-xs text-white/60">{t(`Tu joues pour ${label(moveColor)}.`, `You play for ${label(moveColor)}.`)}</p>
             )}
           </div>
           {timeLeft !== null && turnTimer && (
@@ -359,13 +364,13 @@ export function GameView({
         </div>
       </div>
 
-      <Sheet open={helpOpen} title="Comment jouer" onClose={() => setHelpOpen(false)}>
+      <Sheet open={helpOpen} title={t('Comment jouer', 'How to play')} onClose={() => setHelpOpen(false)}>
         <HowToPlay rules={state.rules} />
       </Sheet>
-      <Sheet open={lookOpen} title="Apparence" onClose={() => setLookOpen(false)}>
+      <Sheet open={lookOpen} title={t('Apparence', 'Appearance')} onClose={() => setLookOpen(false)}>
         {you && (
           <div className="mb-5">
-            <h3 className="mb-2 px-1 text-[13px] font-medium text-[#00a884]">Ta couleur</h3>
+            <h3 className="mb-2 px-1 text-[13px] font-medium text-[#00a884]">{t('Ta couleur', 'Your colour')}</h3>
             <ColorPreference assigned={you} />
           </div>
         )}
@@ -380,13 +385,13 @@ export function GameView({
               <div className="float text-6xl">{progress.participant && !progress.won ? '😢' : '🏆'}</div>
               <h2 className="mt-3 text-3xl font-bold">
                 {progress.participant && !progress.won
-                  ? 'Perdu…'
+                  ? t('Perdu…', 'You lost…')
                   : state.winners.length > 1
-                    ? 'Victoire d’équipe !'
-                    : 'Victoire !'}
+                    ? t('Victoire d’équipe !', 'Team victory!')
+                    : t('Victoire !', 'Victory!')}
               </h2>
               {state.lastEvent?.type === 'win' && state.lastEvent.reason === 'forfeit' && (
-                <p className="mt-1 text-sm text-white/60">Par abandon : dernier en lice.</p>
+                <p className="mt-1 text-sm text-white/60">{t('Par abandon : dernier en lice.', 'By forfeit: last one standing.')}</p>
               )}
               <div className="mt-4 flex flex-col items-center gap-2">
                 {state.winners.map((c) => (

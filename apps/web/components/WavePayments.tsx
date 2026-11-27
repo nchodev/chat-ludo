@@ -31,6 +31,8 @@ export interface PaymentsView {
   depositRoom: number;
   /** The Wave number tied to the account, once a first deposit or withdrawal gave it. */
   phone: string | null;
+  /** Referral bonus that can be staked but not withdrawn yet, and what is left to stake to free it. */
+  bonus: { locked: number; wagerDue: number };
   payments: PaymentLine[];
 }
 
@@ -207,7 +209,9 @@ export function WithdrawSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { min, perDay } = view.limits.withdrawal;
-  const max = Math.min(balance, perDay);
+  const locked = Math.min(view.bonus.locked, balance);
+  const withdrawable = balance - locked;
+  const max = Math.min(withdrawable, perDay);
   const value = Number(amount);
   const pending = view.payments.some((p) => p.kind === 'withdrawal' && p.status === 'pending');
 
@@ -240,16 +244,18 @@ export function WithdrawSheet({
           <p className="text-[15px] font-medium">Un retrait est déjà en cours</p>
           <p className="text-[13px] text-[#8696a0]">Tu pourras en demander un autre dès qu’il aura été traité.</p>
         </div>
-      ) : balance < min ? (
+      ) : withdrawable < min ? (
         <div className="flex flex-col items-center gap-3 py-6 text-center">
           <span className="grid size-14 place-items-center rounded-full bg-white/[0.06] text-[#aebac1]">
             <GemIcon size={28} />
           </span>
-          <p className="text-[15px] font-medium">Solde insuffisant</p>
-          <p className="text-[13px] text-[#8696a0]">Il faut au moins {fcfa(min)} en pièces Premium pour demander un retrait.</p>
+          <p className="text-[15px] font-medium">Solde retirable insuffisant</p>
+          <p className="text-[13px] text-[#8696a0]">Il faut au moins {fcfa(min)} en pièces Premium retirables pour demander un retrait.</p>
+          {locked > 0 && <BonusNotice locked={locked} wagerDue={view.bonus.wagerDue} />}
         </div>
       ) : (
         <form onSubmit={submit} className="flex flex-col gap-4 pt-1">
+          {locked > 0 && <BonusNotice locked={locked} wagerDue={view.bonus.wagerDue} />}
           <AmountField value={amount} onChange={setAmount} min={min} max={max} />
           <button type="button" onClick={() => setAmount(String(max))} className="-mt-2 self-start text-[13.5px] font-semibold text-[#00a884]">
             Tout retirer ({fcfa(max)})
@@ -271,6 +277,19 @@ export function WithdrawSheet({
         </form>
       )}
     </Sheet>
+  );
+}
+
+/** Why part of the balance can't be withdrawn yet: a referral bonus still to be staked. */
+function BonusNotice({ locked, wagerDue }: { locked: number; wagerDue: number }) {
+  return (
+    <p className="flex gap-2 rounded-2xl bg-[#ffbc38]/10 px-3.5 py-3 text-left text-[12.5px] leading-snug text-[#ffd279]">
+      <Icon.Gift size={18} className="mt-px shrink-0" />
+      <span>
+        <strong className="tabular-nums">{locked.toLocaleString('fr-FR')}</strong> pièces de bonus sont bloquées. Mise encore{' '}
+        <strong className="tabular-nums">{wagerDue.toLocaleString('fr-FR')}</strong> pièces Premium en parties pour pouvoir les retirer.
+      </span>
+    </p>
   );
 }
 

@@ -18,13 +18,11 @@ export interface StakeConfig {
   winnerShare: number;
   /** Off: no Premium table, stake or deposit anywhere; balances can still be withdrawn. */
   premiumEnabled: boolean;
-  /** Most Premium coins a player may hold: deposits stop there, and staking resumes once back under it. */
+  /** Deposits stop once the Premium balance would pass it. Winnings may take a balance above it: that player keeps playing. */
   premiumWalletCap: number;
 }
 
 export const PREMIUM_CLOSED = 'Le mode Premium est momentanément désactivé.';
-export const overWalletCap = (cap: number) =>
-  `Ton solde Premium dépasse le plafond de ${cap.toLocaleString('fr-FR')} pièces : retire l’excédent pour miser à nouveau.`;
 export const ADULT_REQUIRED = 'Le mode Premium est réservé aux joueurs de 18 ans ou plus : accepte d’abord l’attestation de majorité.';
 
 /** Winner's share of the pot: 50 % to 100 % (commission 0 % to 50 %). */

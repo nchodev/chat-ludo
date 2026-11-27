@@ -346,3 +346,11 @@ body {
 .qr-scan-line {
   animation: qr-scan 2.4s ease-in-out infinite;
 }
+
+/* Fingerprint lock (lib/appLock.ts): nothing of the app shows until it is unlocked. */
+html[data-app-locked] body > :not(#app-lock) {
+  visibility: hidden;
+}
+html[data-app-locked] body {
+  background: #0b141a;
+}

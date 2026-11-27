@@ -8,8 +8,9 @@ import { PieceDisc } from '../draughts/DraughtsBoard';
 import { DraughtsDuelView, draughtsEnding } from '../draughts/DraughtsGameView';
 import { DraughtsLogo } from '../draughts/DraughtsLogo';
 import type { DuelViewProps } from './DuelFrame';
+import { tr } from '@/lib/i18n';
 
-/** What the shared online pages need to know about one two-player game. */
+/** What the shared online pages need to know about one two-player game (texts are getters: current language). */
 export interface DuelUi<K extends DuelGame = DuelGame> {
   kind: K;
   name: string;
@@ -35,14 +36,26 @@ export interface DuelUi<K extends DuelGame = DuelGame> {
 export const DUEL_UI: { [K in DuelGame]: DuelUi<K> } = {
   dames: {
     kind: 'dames',
-    name: 'Dames',
-    long: 'Dames internationales',
+    get name() {
+      return tr('Dames', 'Draughts');
+    },
+    get long() {
+      return tr('Dames internationales', 'International draughts');
+    },
     base: '/dames',
-    inviteGame: 'aux dames',
-    challengeTitle: 'On te défie aux dames !',
-    roomTitle: 'Salon de dames',
+    get inviteGame() {
+      return tr('aux dames', 'draughts');
+    },
+    get challengeTitle() {
+      return tr('On te défie aux dames !', 'You’re challenged to draughts!');
+    },
+    get roomTitle() {
+      return tr('Salon de dames', 'Draughts room');
+    },
     clockMs: DRAUGHTS_CLOCK_MS,
-    sidesText: 'Les couleurs sont tirées au sort, puis échangées à chaque revanche.',
+    get sidesText() {
+      return tr('Les couleurs sont tirées au sort, puis échangées à chaque revanche.', 'Colours are drawn at random, then swapped at each rematch.');
+    },
     logo: (size) => <DraughtsLogo size={size} />,
     searchArt: (
       <span className="relative flex items-center">
@@ -60,13 +73,23 @@ export const DUEL_UI: { [K in DuelGame]: DuelUi<K> } = {
   awale: {
     kind: 'awale',
     name: 'Awalé',
-    long: 'Awalé · 2 × 6 trous',
+    get long() {
+      return tr('Awalé · 2 × 6 trous', 'Awalé · 2 × 6 pits');
+    },
     base: '/awale',
-    inviteGame: 'à l’awalé',
-    challengeTitle: 'On te défie à l’awalé !',
-    roomTitle: 'Salon d’awalé',
+    get inviteGame() {
+      return tr('à l’awalé', 'Awalé');
+    },
+    get challengeTitle() {
+      return tr('On te défie à l’awalé !', 'You’re challenged to Awalé!');
+    },
+    get roomTitle() {
+      return tr('Salon d’awalé', 'Awalé room');
+    },
     clockMs: AWALE_CLOCK_MS,
-    sidesText: 'Celui qui commence est tiré au sort, puis on alterne à chaque revanche.',
+    get sidesText() {
+      return tr('Celui qui commence est tiré au sort, puis on alterne à chaque revanche.', 'Who starts is drawn at random, then it alternates at each rematch.');
+    },
     logo: (size) => <AwaleLogo size={size} />,
     searchArt: (
       <span className="relative flex items-center">

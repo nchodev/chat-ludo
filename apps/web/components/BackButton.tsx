@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useLang } from '@/lib/i18n';
 import { useState, useSyncExternalStore, type PointerEvent } from 'react';
 
 type Platform = 'ios' | 'android';
@@ -35,8 +36,10 @@ interface BackButtonProps {
  * Platform back button: a round Material icon button with a ripple on Android,
  * a chevron with a label that dims when pressed on iOS.
  */
-export function BackButton({ href, onClick, label, text = 'Retour', compact = false, className = '' }: BackButtonProps) {
+export function BackButton({ href, onClick, label, text: givenText, compact = false, className = '' }: BackButtonProps) {
   const platform = usePlatform();
+  const { t } = useLang();
+  const text = givenText ?? t('Retour', 'Back');
   const [ripple, setRipple] = useState<{ x: number; y: number; key: number } | null>(null);
 
   const onPointerDown = (e: PointerEvent<HTMLElement>) => {

@@ -3,8 +3,16 @@
 import { awalePitsOf, otherSide, type AwaleState, type Side } from '@ludo/engine';
 import { DuelFrame, PlayerBar, ResultHeader as DuelResultHeader, commonEnding, type DuelSeat, type DuelViewProps } from '../duel/DuelFrame';
 import { AwaleBoard, SeedDot } from './AwaleBoard';
+import { tr } from '@/lib/i18n';
 
-export const AWALE_SIDE_LABEL: Record<Side, string> = { white: 'Sud', black: 'Nord' };
+export const AWALE_SIDE_LABEL: Record<Side, string> = {
+  get white() {
+    return tr('Sud', 'South');
+  },
+  get black() {
+    return tr('Nord', 'North');
+  },
+};
 
 /** Round token of a player: light wood for South, dark wood for North. */
 export function AwaleSideToken({ side }: { side: Side }) {
@@ -32,7 +40,7 @@ function AwalePlayerBar({ seat, state }: { seat: DuelSeat; state: AwaleState }) 
       icon={<AwaleSideToken side={seat.side} />}
       idle={AWALE_SIDE_LABEL[seat.side]}
       badge={
-        <span className="flex h-10 shrink-0 flex-col items-center justify-center rounded-xl bg-[#0b141a] px-2.5" title="Graines prises">
+        <span className="flex h-10 shrink-0 flex-col items-center justify-center rounded-xl bg-[#0b141a] px-2.5" title={tr('Graines prises', 'Seeds captured')}>
           <span className="text-[17px] leading-none font-bold tabular-nums text-[#f3e6cf]">{store}</span>
           <span className="text-[10px] leading-tight text-[#8696a0]">graine{store > 1 ? 's' : ''}</span>
         </span>
@@ -68,11 +76,11 @@ export function AwaleGameView({ title, subtitle, onBack, backLabel, state, top, 
       }
       hint={
         mustFeed || (interactive && opponentEmpty)
-          ? 'Ton adversaire n’a plus de graines : tu dois le nourrir.'
+          ? tr('Ton adversaire n’a plus de graines : tu dois le nourrir.', 'Your opponent has no seeds left: you must feed them.')
           : interactive
-            ? 'À toi de jouer : touche un de tes trous.'
+            ? tr('À toi de jouer : touche un de tes trous.', 'Your move: tap one of your pits.')
             : state.lastMove?.slam
-              ? 'Grand chelem : prendre toutes les graines est interdit, rien n’est pris.'
+              ? tr('Grand chelem : prendre toutes les graines est interdit, rien n’est pris.', 'Grand slam: taking all the seeds is not allowed, nothing is captured.')
               : null
       }
       toolbar={toolbar}
@@ -88,16 +96,16 @@ export function AwaleDuelView(props: DuelViewProps<AwaleState>) {
 }
 
 export function awaleEnding(state: AwaleState, names: Record<Side, string>) {
-  const score = `Score : ${state.store.white} à ${state.store.black}.`;
+  const score = tr(`Score : ${state.store.white} à ${state.store.black}.`, `Score: ${state.store.white} to ${state.store.black}.`);
   const common = commonEnding(state.endReason, state.winner, names);
   if (common) return common;
   switch (state.endReason) {
     case 'majority':
-      return `${names[state.winner!]} a pris plus de la moitié des graines. ${score}`;
+      return tr(`${names[state.winner!]} a pris plus de la moitié des graines. ${score}`, `${names[state.winner!]} captured more than half the seeds. ${score}`);
     case 'starved':
-      return `Impossible de nourrir l’adversaire : chacun garde les graines de son côté. ${score}`;
+      return tr(`Impossible de nourrir l’adversaire : chacun garde les graines de son côté. ${score}`, `Couldn’t feed the opponent: each keeps the seeds on their side. ${score}`);
     default:
-      return `Les graines tournaient sans prise : chacun garde les graines de son côté. ${score}`;
+      return tr(`Les graines tournaient sans prise : chacun garde les graines de son côté. ${score}`, `The seeds kept going round with no capture: each keeps the seeds on their side. ${score}`);
   }
 }
 

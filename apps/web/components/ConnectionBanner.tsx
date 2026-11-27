@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useConnectivity, useReconnectOnResume } from '@/lib/connectivity';
+import { useLang } from '@/lib/i18n';
 
 /** A dropped game connection is only shown after this long, so quick reconnections go unnoticed. */
 const RECONNECTING_GRACE_MS = 2000;
@@ -12,6 +13,7 @@ type Shown = 'offline' | 'reconnecting' | 'restored' | null;
 export function ConnectionBanner() {
   useReconnectOnResume();
   const status = useConnectivity();
+  const { t } = useLang();
   const [shown, setShown] = useState<Shown>(null);
 
   useEffect(() => {
@@ -40,9 +42,9 @@ export function ConnectionBanner() {
     restored: 'bg-[#00a884] text-white',
   }[shown];
   const text = {
-    offline: 'Pas de connexion internet. Les parties sur le même écran restent disponibles.',
-    reconnecting: 'Connexion au serveur perdue, reconnexion…',
-    restored: 'Connexion rétablie',
+    offline: t('Pas de connexion internet. Les parties sur le même écran restent disponibles.', 'No internet connection. Games on this screen are still available.'),
+    reconnecting: t('Connexion au serveur perdue, reconnexion…', 'Connection to the server lost, reconnecting…'),
+    restored: t('Connexion rétablie', 'Connection restored'),
   }[shown];
 
   return (

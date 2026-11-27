@@ -20,6 +20,7 @@ import {
   type ShopItem,
 } from '@ludo/engine';
 import { ApiError, api } from './api';
+import { forgetAppLock } from './appLock';
 import { disablePush } from './push';
 import { clearReferrer, storedReferrer } from './referral';
 import { deviceId } from './socket';
@@ -101,6 +102,7 @@ function applyAccount(res: AccountResponse) {
 }
 
 function signOutLocally() {
+  forgetAppLock();
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(ACCOUNT_CACHE_KEY);
   localStorage.removeItem(ADULT_CACHE_KEY);

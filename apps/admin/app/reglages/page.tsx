@@ -168,7 +168,7 @@ export default function SettingsPage() {
         <h2 className="text-[16px] font-medium">Plafond du portefeuille Premium</h2>
         <p className="mt-1 text-[13.5px] text-muted">
           Solde Premium maximum par joueur. Les dépôts s’arrêtent au plafond (dépôts en attente compris). Un joueur qui le dépasse grâce à ses gains garde ses
-          pièces mais ne peut plus miser en Premium avant d’avoir retiré l’excédent.
+          pièces et continue de jouer en Premium ; il ne peut simplement plus déposer tant qu’il est au-dessus.
         </p>
         <label className="mt-4 flex items-center gap-2">
           <input

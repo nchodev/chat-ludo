@@ -1,3 +1,4 @@
+import { tr } from '@/lib/i18n';
 /** Mark of the draughts game: a corner of the board with a white and a black king. */
 export function DraughtsLogo({ size = 64, className = '' }: { size?: number; className?: string }) {
   const cells = [];
@@ -33,5 +34,5 @@ export function DraughtsLogo({ size = 64, className = '' }: { size?: number; cla
 }
 
 export function DraughtsWordmark({ className = '' }: { className?: string }) {
-  return <span className={`font-semibold tracking-tight text-[#f3e6cf] ${className}`}>Dames</span>;
+  return <span className={`font-semibold tracking-tight text-[#f3e6cf] ${className}`}>{tr('Dames', 'Draughts')}</span>;
 }

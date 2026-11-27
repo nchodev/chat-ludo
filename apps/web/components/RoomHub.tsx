@@ -9,6 +9,7 @@ import { Sheet } from './Sheet';
 import { StakePicker } from './StakePicker';
 import { useProfile } from '@/lib/profile';
 import { getStoredName, storeName } from '@/lib/socket';
+import { useLang } from '@/lib/i18n';
 
 const CODE_LENGTH = 5;
 const cleanCode = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, CODE_LENGTH);
@@ -23,7 +24,11 @@ export interface RoomPerk {
   friendlyOnly?: boolean;
 }
 
-const STEPS = ['Crée un salon', 'Envoie le code', 'Lancez la partie'];
+const STEPS: [string, string][] = [
+  ['Crée un salon', 'Create a room'],
+  ['Envoie le code', 'Send the code'],
+  ['Lancez la partie', 'Start the game'],
+];
 
 /**
  * Private room screen shared by the games: who you play as, then create a room (friendly or
@@ -60,6 +65,7 @@ export function RoomHub({
 }) {
   const router = useRouter();
   const { session } = useProfile();
+  const { t } = useLang();
   const [mode, setMode] = useState<'create' | 'join'>('create');
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
@@ -85,7 +91,7 @@ export function RoomHub({
   }, [error]);
 
   const create = async () => {
-    if (wager && !session) return setError('Connecte-toi pour créer un salon avec mise.');
+    if (wager && !session) return setError(t('Connecte-toi pour créer un salon avec mise.', 'Sign in to create a room with a stake.'));
     if (!name.trim()) return setAskName('create');
     storeName(name.trim());
     setBusy(true);
@@ -93,13 +99,13 @@ export function RoomHub({
     try {
       router.push(joinPath(await onCreate(name.trim(), wager)));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Création impossible.');
+      setError(err instanceof Error ? err.message : t('Création impossible.', 'Could not create the room.'));
       setBusy(false);
     }
   };
 
   const join = (value = code) => {
-    if (value.length < CODE_LENGTH) return setError(`Le code contient ${CODE_LENGTH} caractères.`);
+    if (value.length < CODE_LENGTH) return setError(t(`Le code contient ${CODE_LENGTH} caractères.`, `The code has ${CODE_LENGTH} characters.`));
     if (!name.trim()) return setAskName('join');
     storeName(name.trim());
     router.push(joinPath(value));
@@ -108,12 +114,12 @@ export function RoomHub({
   const paste = async () => {
     const text = (await navigator.clipboard?.readText().catch(() => '')) ?? '';
     // An invitation message ("… Code du salon : K7P2Q …") or a bare code.
-    const fromMessage = /code du salon\s*:\s*([A-Z0-9]{5})/i.exec(text)?.[1] ?? /\/([A-Z0-9]{5})\b/i.exec(text)?.[1];
+    const fromMessage = /(?:code du salon|room code)\s*:\s*([A-Z0-9]{5})/i.exec(text)?.[1] ?? /\/([A-Z0-9]{5})\b/i.exec(text)?.[1];
     const pasted = cleanCode(fromMessage ?? text);
     if (pasted) setCode(pasted);
     else {
       codeInput.current?.focus();
-      setError('Aucun code dans le presse-papiers.');
+      setError(t('Aucun code dans le presse-papiers.', 'No code in the clipboard.'));
     }
   };
 
@@ -134,20 +140,20 @@ export function RoomHub({
             </span>
           </div>
           <ol className="mt-4 grid grid-cols-3 gap-2">
-            {STEPS.map((step, i) => (
-              <li key={step} className="flex flex-col items-center gap-1.5 rounded-2xl bg-black/20 px-1 py-2.5 text-center">
+            {STEPS.map(([fr, en], i) => (
+              <li key={fr} className="flex flex-col items-center gap-1.5 rounded-2xl bg-black/20 px-1 py-2.5 text-center">
                 <span className="grid size-6 place-items-center rounded-full bg-white/15 text-[12px] font-bold">{i + 1}</span>
-                <span className="text-[12px] leading-tight text-[#e9edef]/90">{step}</span>
+                <span className="text-[12px] leading-tight text-[#e9edef]/90">{t(fr, en)}</span>
               </li>
             ))}
           </ol>
         </section>
 
-        <div role="tablist" aria-label="Salon" className="mx-4 grid grid-cols-2 gap-1 rounded-full bg-[#1f2c33] p-1">
+        <div role="tablist" aria-label={t('Salon', 'Room')} className="mx-4 grid grid-cols-2 gap-1 rounded-full bg-[#1f2c33] p-1">
           {(
             [
-              { id: 'create', label: 'Créer', icon: Icon.Add },
-              { id: 'join', label: 'Rejoindre', icon: Icon.Login },
+              { id: 'create', label: t('Créer', 'Create'), icon: Icon.Add },
+              { id: 'join', label: t('Rejoindre', 'Join'), icon: Icon.Login },
             ] as const
           ).map(({ id, label, icon: TabIcon }) => (
             <button
@@ -168,10 +174,10 @@ export function RoomHub({
 
         {mode === 'create' ? (
           <section className="mx-4 rounded-[28px] bg-[#1f2c33] p-4">
-            <h3 className="mb-2 px-1 text-[13px] font-medium text-[#00a884]">Type de partie</h3>
+            <h3 className="mb-2 px-1 text-[13px] font-medium text-[#00a884]">{t('Type de partie', 'Game type')}</h3>
             <StakePicker value={wager} onChange={setWager} players={2} />
 
-            <h3 className="mt-5 mb-1 px-1 text-[13px] font-medium text-[#00a884]">Dans ton salon</h3>
+            <h3 className="mt-5 mb-1 px-1 text-[13px] font-medium text-[#00a884]">{t('Dans ton salon', 'In your room')}</h3>
             <ul className="divide-y divide-white/[0.06]">
               {shownPerks.map(({ icon: PerkIcon, title: perkTitle, text }) => (
                 <li key={perkTitle} className="flex items-center gap-3 px-1 py-2.5">
@@ -193,13 +199,13 @@ export function RoomHub({
               className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] transition active:scale-[0.98] disabled:opacity-60"
             >
               {busy ? <span className="size-5 animate-spin rounded-full border-2 border-[#0b141a]/30 border-t-[#0b141a]" /> : <Icon.Add size={22} />}
-              {busy ? 'Création…' : wager ? 'Créer un salon avec mise' : 'Créer le salon'}
+              {busy ? t('Création…', 'Creating…') : wager ? t('Créer un salon avec mise', 'Create a room with a stake') : t('Créer le salon', 'Create the room')}
             </button>
           </section>
         ) : (
           <section className="mx-4 rounded-[28px] bg-[#1f2c33] p-4">
-            <h3 className="px-1 text-[13px] font-medium text-[#00a884]">Code du salon</h3>
-            <p className="mt-0.5 px-1 text-[13px] text-[#8696a0]">5 lettres ou chiffres, reçus de ton ami.</p>
+            <h3 className="px-1 text-[13px] font-medium text-[#00a884]">{t('Code du salon', 'Room code')}</h3>
+            <p className="mt-0.5 px-1 text-[13px] text-[#8696a0]">{t('5 lettres ou chiffres, reçus de ton ami.', '5 letters or digits, from your friend.')}</p>
 
             <label className="relative mt-3 flex justify-between gap-2">
               <input
@@ -214,7 +220,7 @@ export function RoomHub({
                 autoComplete="one-time-code"
                 spellCheck={false}
                 enterKeyHint="go"
-                aria-label="Code du salon"
+                aria-label={t('Code du salon', 'Room code')}
                 className="absolute inset-0 z-10 w-full cursor-text opacity-0"
               />
               {Array.from({ length: CODE_LENGTH }, (_, i) => {
@@ -239,7 +245,7 @@ export function RoomHub({
                 className="flex h-11 items-center justify-center gap-2 rounded-full bg-[#2a3942] text-[14px] font-medium text-[#e9edef] active:bg-[#32434d]"
               >
                 <Icon.Paste size={19} />
-                Coller
+                {t('Coller', 'Paste')}
               </button>
               <button
                 type="button"
@@ -247,7 +253,7 @@ export function RoomHub({
                 className="flex h-11 items-center justify-center gap-2 rounded-full bg-[#2a3942] text-[14px] font-medium text-[#e9edef] active:bg-[#32434d]"
               >
                 <Icon.QrScan size={19} />
-                Scanner
+                {t('Scanner', 'Scan')}
               </button>
             </div>
 
@@ -258,7 +264,7 @@ export function RoomHub({
               className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] transition active:scale-[0.98] disabled:bg-[#2a3942] disabled:text-[#8696a0]"
             >
               <Icon.Login size={20} />
-              {ready ? `Rejoindre le salon ${code}` : 'Rejoindre'}
+              {ready ? t(`Rejoindre le salon ${code}`, `Join room ${code}`) : t('Rejoindre', 'Join')}
             </button>
           </section>
         )}
@@ -266,7 +272,7 @@ export function RoomHub({
 
       {scanning && <QrScanner onClose={() => setScanning(false)} />}
 
-      <Sheet open={askName !== null} title="Ton pseudo" onClose={() => setAskName(null)}>
+      <Sheet open={askName !== null} title={t('Ton pseudo', 'Your name')} onClose={() => setAskName(null)}>
         <form
           className="flex flex-col gap-4"
           onSubmit={(e) => {
@@ -278,7 +284,7 @@ export function RoomHub({
             else join();
           }}
         >
-          <p className="text-[14px] text-[#8696a0]">C’est le nom que verront les autres joueurs dans le salon.</p>
+          <p className="text-[14px] text-[#8696a0]">{t('C’est le nom que verront les autres joueurs dans le salon.', 'This is the name the other players will see in the room.')}</p>
           <label className="flex items-center gap-4">
             <span className="grid size-12 shrink-0 place-items-center rounded-full bg-[#2a3942] text-[20px] font-semibold text-[#aebac1]">
               {name.trim()[0]?.toUpperCase() ?? <Icon.Person size={24} />}
@@ -288,7 +294,7 @@ export function RoomHub({
               value={name}
               maxLength={20}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ex : Awa"
+              placeholder={t('Ex : Awa', 'E.g. Awa')}
               autoComplete="nickname"
               enterKeyHint="go"
               className="h-12 min-w-0 flex-1 border-b-2 border-[#2a3942] bg-transparent px-1 text-[18px] text-[#e9edef] outline-none placeholder:text-[#8696a0]/60 focus:border-[#00a884]"
@@ -300,7 +306,7 @@ export function RoomHub({
             className="flex h-12 items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] disabled:bg-[#2a3942] disabled:text-[#8696a0]"
           >
             {askName === 'join' ? <Icon.Login size={20} /> : <Icon.Add size={22} />}
-            {askName === 'join' ? 'Rejoindre' : 'Créer le salon'}
+            {askName === 'join' ? t('Rejoindre', 'Join') : t('Créer le salon', 'Create the room')}
           </button>
         </form>
       </Sheet>

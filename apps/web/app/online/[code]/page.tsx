@@ -40,6 +40,7 @@ import { boardTurn, campShownAs, shownColor, usePreferredColor, viewShift } from
 import { useStakeConfig } from '@/lib/stakes';
 import { useReactionBubbles } from '@/lib/reactions';
 import { useOnlineRoom, useRoomReactions } from '@/lib/useOnlineRoom';
+import { tr, useLang } from '@/lib/i18n';
 
 type Actions = ReturnType<typeof useOnlineRoom>['actions'];
 
@@ -54,20 +55,21 @@ function CenteredMessage({ children }: { children: React.ReactNode }) {
 }
 
 const NOT_FOUND_REASONS = [
-  { icon: Icon.Edit, text: 'Une lettre ou un chiffre du code est erroné' },
-  { icon: Icon.Close, text: 'Tout le monde a quitté le salon, il a été fermé' },
-  { icon: Icon.Refresh, text: 'Le serveur de jeu a redémarré depuis l’invitation' },
+  { icon: Icon.Edit, text: ['Une lettre ou un chiffre du code est erroné', 'A letter or digit of the code is wrong'] },
+  { icon: Icon.Close, text: ['Tout le monde a quitté le salon, il a été fermé', 'Everyone left the room, so it was closed'] },
+  { icon: Icon.Refresh, text: ['Le serveur de jeu a redémarré depuis l’invitation', 'The game server restarted since the invitation'] },
 ];
 
 function JoinErrorScreen({ code, error }: { code: string; error: string }) {
-  const notFound = /introuvable/i.test(error);
-  const started = /commencé/i.test(error);
-  const title = notFound ? 'Salon introuvable' : started ? 'Partie déjà en cours' : 'Impossible de rejoindre';
-  const text = notFound ? 'Ce code ne correspond à aucun salon ouvert.' : error;
+  const { t } = useLang();
+  const notFound = /introuvable|not found/i.test(error);
+  const started = /commencé|already started/i.test(error);
+  const title = notFound ? t('Salon introuvable', 'Room not found') : started ? t('Partie déjà en cours', 'Game already in progress') : t('Impossible de rejoindre', 'Could not join');
+  const text = notFound ? t('Ce code ne correspond à aucun salon ouvert.', 'This code doesn’t match any open room.') : error;
 
   return (
     <div className="min-h-dvh bg-[#0b141a] text-[#e9edef]">
-      <AppBar title="Rejoindre un salon" backHref="/online" backText="Salons" backLabel="Retour aux salons" />
+      <AppBar title={t('Rejoindre un salon', 'Join a room')} backHref="/online" backText={t('Salons', 'Rooms')} backLabel={t('Retour aux salons', 'Back to rooms')} />
 
       <main className="mx-auto flex max-w-lg flex-col items-center px-4 pt-10 pb-44 text-center">
         <div className="relative">
@@ -95,14 +97,14 @@ function JoinErrorScreen({ code, error }: { code: string; error: string }) {
 
         {notFound && (
           <section className="mt-8 w-full text-left">
-            <h2 className="px-1 pb-2 text-[13px] font-medium tracking-wide text-[#00a884]">Causes possibles</h2>
+            <h2 className="px-1 pb-2 text-[13px] font-medium tracking-wide text-[#00a884]">{t('Causes possibles', 'Possible reasons')}</h2>
             <ul className="overflow-hidden rounded-[24px] bg-[#1f2c33]">
-              {NOT_FOUND_REASONS.map(({ icon: ReasonIcon, text: reason }, i) => (
-                <li key={reason} className="flex items-center gap-4 px-4">
+              {NOT_FOUND_REASONS.map(({ icon: ReasonIcon, text: [fr, en] }, i) => (
+                <li key={fr} className="flex items-center gap-4 px-4">
                   <span className="grid size-9 shrink-0 place-items-center rounded-full bg-white/[0.06] text-[#aebac1]">
                     <ReasonIcon size={18} />
                   </span>
-                  <span className={`flex-1 py-3.5 text-[14px] text-[#d1d7db] ${i > 0 ? 'border-t border-white/[0.06]' : ''}`}>{reason}</span>
+                  <span className={`flex-1 py-3.5 text-[14px] text-[#d1d7db] ${i > 0 ? 'border-t border-white/[0.06]' : ''}`}>{t(fr, en)}</span>
                 </li>
               ))}
             </ul>
@@ -117,7 +119,7 @@ function JoinErrorScreen({ code, error }: { code: string; error: string }) {
             className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] transition active:scale-[0.98]"
           >
             <Icon.Login size={20} />
-            Entrer un autre code
+            {t('Entrer un autre code', 'Enter another code')}
           </Link>
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -126,14 +128,14 @@ function JoinErrorScreen({ code, error }: { code: string; error: string }) {
               className="flex h-12 items-center justify-center gap-2 rounded-full border border-[#2a3942] text-[14.5px] font-semibold text-[#00a884] transition active:bg-white/5"
             >
               <Icon.Refresh size={20} />
-              Réessayer
+              {t('Réessayer', 'Try again')}
             </button>
             <Link
               href="/rapide"
               className="flex h-12 items-center justify-center gap-2 rounded-full border border-[#2a3942] text-[14.5px] font-semibold text-[#00a884] transition active:bg-white/5"
             >
               <Icon.Bolt size={20} />
-              Partie rapide
+              {t('Partie rapide', 'Quick match')}
             </Link>
           </div>
         </div>
@@ -150,6 +152,7 @@ export default function RoomPage() {
   const [nameChecked, setNameChecked] = useState(false);
   const { session, ready } = useProfile();
   const { room, joinError, toast, connected, actions } = useOnlineRoom(code, name);
+  const { t } = useLang();
 
   useEffect(() => {
     if (!ready) return;
@@ -171,14 +174,14 @@ export default function RoomPage() {
           <span className="mx-auto grid size-16 place-items-center rounded-full bg-[#00a884]/15 text-[#00a884]">
             <Icon.Dice size={34} />
           </span>
-          <h1 className="mt-3 text-2xl font-bold">On t’invite à jouer !</h1>
+          <h1 className="mt-3 text-2xl font-bold">{t('On t’invite à jouer !', 'You’re invited to play!')}</h1>
           <p className="mt-1 text-white/60">
-            Salon <span className="font-mono font-bold tracking-widest text-white">{code}</span>
+            {t('Salon', 'Room')} <span className="font-mono font-bold tracking-widest text-white">{code}</span>
           </p>
         </div>
         <div className="card p-4">
           <NameForm
-            submitLabel="Rejoindre la partie"
+            submitLabel={t('Rejoindre la partie', 'Join the game')}
             onSubmit={(n) => {
               storeName(n);
               setName(n);
@@ -195,14 +198,14 @@ export default function RoomPage() {
     return (
       <CenteredMessage>
         <span className="mx-auto size-12 animate-spin rounded-full border-4 border-[#00a884]/20 border-t-[#00a884]" />
-        <p className="text-[18px] font-medium">{connected ? 'Connexion au salon' : 'Serveur de jeu injoignable'}</p>
+        <p className="text-[18px] font-medium">{connected ? t('Connexion au salon', 'Joining the room') : t('Serveur de jeu injoignable', 'Game server unreachable')}</p>
         <p className="-mt-2 text-[14px] text-[#8696a0]">
           {connected ? (
             <>
-              Salon <span className="font-mono font-semibold tracking-widest text-[#e9edef]">{code}</span>
+              {t('Salon', 'Room')} <span className="font-mono font-semibold tracking-widest text-[#e9edef]">{code}</span>
             </>
           ) : (
-            'Nouvelle tentative en cours…'
+            t('Nouvelle tentative en cours…', 'Trying again…')
           )}
         </p>
       </CenteredMessage>
@@ -238,6 +241,7 @@ function OnlineGame({ room, actions, onQuit }: { room: RoomView; actions: Action
   const stillPlaying =
     !!room.you && game.phase !== 'over' && !youForfeited && game.players.some((p) => p.color === room.you);
   const [quitOpen, setQuitOpen] = useState(false);
+  const { t } = useLang();
   const reactions = useReactionBubbles(room.you ? [room.you] : []);
   useRoomReactions(reactions.show);
   const payoutKey = room.stake ? `${game.id}:${room.stake.payout ? 'paid' : 'open'}` : null;
@@ -274,18 +278,18 @@ function OnlineGame({ room, actions, onQuit }: { room: RoomView; actions: Action
       notice={
         youForfeited && game.phase !== 'over' ? (
           timedOut ? (
-            `${MAX_TIMEOUTS} tours manqués de suite : tu as perdu. Tu peux regarder la fin.`
+            t(`${MAX_TIMEOUTS} tours manqués de suite : tu as perdu. Tu peux regarder la fin.`, `${MAX_TIMEOUTS} missed turns in a row: you lost. You can watch the end.`)
           ) : (
-            'Tu as quitté la partie : tu as perdu. Tu peux regarder la fin.'
+            t('Tu as quitté la partie : tu as perdu. Tu peux regarder la fin.', 'You left the game: you lost. You can watch the end.')
           )
         ) : room.stake && game.phase !== 'over' ? (
           <span className="flex items-center justify-center gap-3">
             <span className="flex items-center gap-1.5">
-              Cagnotte <CoinAmount value={room.stake.pot} premium={room.stake.currency === 'premium'} size={16} />
+              {t('Cagnotte', 'Pot')} <CoinAmount value={room.stake.pot} premium={room.stake.currency === 'premium'} size={16} />
             </span>
             <span className="text-white/40">·</span>
             <span className="flex items-center gap-1.5">
-              Gain <CoinAmount value={room.stake.prize} premium={room.stake.currency === 'premium'} size={16} className="text-[#25d366]" />
+              {t('Gain', 'Prize')} <CoinAmount value={room.stake.prize} premium={room.stake.currency === 'premium'} size={16} className="text-[#25d366]" />
             </span>
           </span>
         ) : undefined
@@ -301,19 +305,19 @@ function OnlineGame({ room, actions, onQuit }: { room: RoomView; actions: Action
             {room.shared ? (
               <>
                 <button type="button" onClick={actions.rematch} className="btn btn-primary">
-                  Rejouer · nouvelle mise de {room.stake.stake}
+                  {t(`Rejouer · nouvelle mise de ${room.stake.stake}`, `Play again · new stake of ${room.stake.stake}`)}
                 </button>
                 <button type="button" onClick={onQuit} className="btn btn-ghost">
-                  Changer les joueurs
+                  {t('Changer les joueurs', 'Change players')}
                 </button>
               </>
             ) : room.matched ? (
               <>
                 <Link href={`/rapide?table=${room.stake.table}`} className="btn btn-primary">
-                  Rejouer à cette table
+                  {t('Rejouer à cette table', 'Play again at this table')}
                 </Link>
                 <Link href="/rapide" className="btn btn-ghost">
-                  Changer de table
+                  {t('Changer de table', 'Change table')}
                 </Link>
               </>
             ) : (
@@ -344,24 +348,37 @@ function QuitWarning({ open, room, onStay, onQuit }: { open: boolean; room: Room
   const premium = stake?.currency === 'premium';
   const amount = (value: number) => <CoinAmount value={value} premium={premium} size={15} className="font-semibold text-[#e9edef]" />;
   const players = stake ? Math.round(stake.pot / stake.stake) : 0;
+  const { t } = useLang();
 
-  const title = room.shared ? 'Tout le monde perd sa mise' : stake ? 'Tu perds la partie et ta mise' : 'Tu perds la partie';
+  const title = room.shared
+    ? t('Tout le monde perd sa mise', 'Everyone loses their stake')
+    : stake
+      ? t('Tu perds la partie et ta mise', 'You lose the game and your stake')
+      : t('Tu perds la partie', 'You lose the game');
   const body = room.shared ? (
-    <>
-      Cette partie se joue sur ce téléphone. Si tu quittes maintenant, elle s’arrête : les {players} joueurs perdent leur mise
-      {stake && <> de {amount(stake.stake)}</>} et personne ne gagne la cagnotte{stake && <> de {amount(stake.pot)}</>}.
-    </>
+    t(
+      <>
+        Cette partie se joue sur ce téléphone. Si tu quittes maintenant, elle s’arrête : les {players} joueurs perdent leur mise
+        {stake && <> de {amount(stake.stake)}</>} et personne ne gagne la cagnotte{stake && <> de {amount(stake.pot)}</>}.
+      </>,
+      <>
+        This game is played on this phone. If you leave now, it stops: the {players} players lose their stake
+        {stake && <> of {amount(stake.stake)}</>} and nobody wins the pot{stake && <> of {amount(stake.pot)}</>}.
+      </>,
+    )
   ) : stake ? (
-    <>
-      Si tu quittes, tu abandonnes : ta mise de {amount(stake.stake)} est perdue et les autres joueurs continuent pour la
-      cagnotte.
-    </>
+    t(
+      <>
+        Si tu quittes, tu abandonnes : ta mise de {amount(stake.stake)} est perdue et les autres joueurs continuent pour la cagnotte.
+      </>,
+      <>If you leave, you forfeit: your stake of {amount(stake.stake)} is lost and the other players carry on for the pot.</>,
+    )
   ) : (
-    <>Si tu quittes, tu abandonnes et les autres joueurs continuent sans toi.</>
+    t(<>Si tu quittes, tu abandonnes et les autres joueurs continuent sans toi.</>, <>If you leave, you forfeit and the other players carry on without you.</>)
   );
 
   return (
-    <Sheet open={open} title="Quitter la partie ?" onClose={onStay}>
+    <Sheet open={open} title={t('Quitter la partie ?', 'Leave the game?')} onClose={onStay}>
       <div className="flex flex-col gap-4">
         <div className="flex items-start gap-3 rounded-2xl bg-[#f15c6d]/10 p-3">
           <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[#f15c6d]/20 text-[#f15c6d]">
@@ -373,10 +390,10 @@ function QuitWarning({ open, room, onStay, onQuit }: { open: boolean; room: Room
           </div>
         </div>
         <button type="button" onClick={onStay} className="btn btn-primary">
-          Continuer la partie
+          {t('Continuer la partie', 'Keep playing')}
         </button>
         <button type="button" onClick={onQuit} className="btn bg-[#f15c6d]/15 text-[#f15c6d]">
-          {room.shared && stake ? 'Quitter, tout le monde perd sa mise' : 'Quitter et abandonner'}
+          {room.shared && stake ? t('Quitter, tout le monde perd sa mise', 'Leave, everyone loses their stake') : t('Quitter et abandonner', 'Leave and forfeit')}
         </button>
       </div>
     </Sheet>
@@ -389,6 +406,7 @@ function StakeResult({ room, stake, children }: { room: RoomView; stake: RoomSta
   const you = room.seats.find((s) => s.color === room.you);
   const youWon = !!stake.payout?.winner && stake.payout.winner === you?.name;
   const played = !!room.you;
+  const { t } = useLang();
 
   return (
     <>
@@ -399,7 +417,7 @@ function StakeResult({ room, stake, children }: { room: RoomView; stake: RoomSta
               {premium ? <GemIcon size={24} /> : <CoinIcon size={24} />}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[13px] text-white/60">{youWon ? 'Tu remportes la cagnotte' : `${stake.payout.winner} remporte la cagnotte`}</p>
+              <p className="text-[13px] text-white/60">{youWon ? t('Tu remportes la cagnotte', 'You win the pot') : t(`${stake.payout.winner} remporte la cagnotte`, `${stake.payout.winner} wins the pot`)}</p>
               <CoinAmount
                 value={stake.payout.amount}
                 premium={premium}
@@ -409,13 +427,13 @@ function StakeResult({ room, stake, children }: { room: RoomView; stake: RoomSta
             </div>
           </div>
         ) : stake.payout ? (
-          <p className="text-[14px] text-white/80">Partie interrompue : chaque mise a été remboursée.</p>
+          <p className="text-[14px] text-white/80">{t('Partie interrompue : chaque mise a été remboursée.', 'Game interrupted: every stake was refunded.')}</p>
         ) : (
-          <p className="text-[14px] text-white/80">Calcul des gains…</p>
+          <p className="text-[14px] text-white/80">{t('Calcul des gains…', 'Working out the winnings…')}</p>
         )}
         {played && !youWon && stake.payout?.winner && (
           <p className="mt-2 flex items-center gap-1.5 text-[13px] text-white/60">
-            Ta mise perdue : <CoinAmount value={stake.stake} premium={premium} size={14} />
+            {t('Ta mise perdue :', 'Your lost stake:')} <CoinAmount value={stake.stake} premium={premium} size={14} />
           </p>
         )}
       </div>
@@ -431,16 +449,17 @@ function RematchActions({ room, actions }: { room: RoomView; actions: Actions })
   const voted = !!room.you && room.rematch.includes(room.you);
   const seated = !!room.you && humans.some((s) => s.color === room.you);
   const opponentsLeft = room.seats.filter((s) => s.kind !== 'empty').length < 2;
+  const { t } = useLang();
 
   return (
     <>
       {seated && !opponentsLeft && (
         <button type="button" onClick={actions.rematch} disabled={voted} className="btn btn-primary">
           {voted
-            ? `En attente : ${waitingFor.map((s) => s.name).join(', ')}…`
+            ? t(`En attente : ${waitingFor.map((s) => s.name).join(', ')}…`, `Waiting for: ${waitingFor.map((s) => s.name).join(', ')}…`)
             : room.wager
-              ? `Revanche · nouvelle mise de ${stakeTable(room.wager)?.stake ?? ''}`
-              : 'Revanche !'}
+              ? t(`Revanche · nouvelle mise de ${stakeTable(room.wager)?.stake ?? ''}`, `Rematch · new stake of ${stakeTable(room.wager)?.stake ?? ''}`)
+              : t('Revanche !', 'Rematch!')}
         </button>
       )}
       {room.rematch.length > 0 && !voted && seated && (
@@ -449,16 +468,16 @@ function RematchActions({ room, actions }: { room: RoomView; actions: Actions })
             .filter((s) => room.rematch.includes(s.color))
             .map((s) => s.name)
             .join(', ')}{' '}
-          veut une revanche !
+          {t('veut une revanche !', 'wants a rematch!')}
         </p>
       )}
-      {opponentsLeft && <p className="text-sm text-white/60">Tes adversaires sont partis.</p>}
+      {opponentsLeft && <p className="text-sm text-white/60">{t('Tes adversaires sont partis.', 'Your opponents have left.')}</p>}
       {room.isHost ? (
         <button type="button" onClick={actions.backToLobby} className="btn btn-ghost">
-          Retour au salon
+          {t('Retour au salon', 'Back to the room')}
         </button>
       ) : (
-        !seated && <p className="text-sm text-white/60">En attente des joueurs…</p>
+        !seated && <p className="text-sm text-white/60">{t('En attente des joueurs…', 'Waiting for players…')}</p>
       )}
     </>
   );
@@ -474,27 +493,29 @@ function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; on
   const wager = room.wager ? (stakeTable(room.wager) ?? null) : null;
   const humans = room.seats.filter((s) => s.kind === 'human');
   const { board, dice, pawn } = useAppearance();
+  const { t } = useLang();
   const filledSeats = room.seats.filter((s) => s.kind !== 'empty');
   const filled = filledSeats.length;
   const shift = viewShift(room.you, usePreferredColor());
   let duelNote: string | null = null;
   if (filled === 2 && !areDiagonal(filledSeats[0].color, filledSeats[1].color)) {
     const [keep, move] = filledSeats[1].isHost ? [filledSeats[1], filledSeats[0]] : filledSeats;
-    duelNote = `À deux, les camps sont en diagonale : ${move.name} jouera ${COLOR_LABEL[shownColor(TEAMMATE[keep.color], shift)]}.`;
+    const side = COLOR_LABEL[shownColor(TEAMMATE[keep.color], shift)];
+    duelNote = t(`À deux, les camps sont en diagonale : ${move.name} jouera ${side}.`, `With two players, sides are diagonal: ${move.name} will play ${side}.`);
   }
   const guests = humans.filter((s) => s.stakeIssue === 'guest').map((s) => s.name);
   const broke = humans.filter((s) => s.stakeIssue === 'funds').map((s) => s.name);
   const startError =
     filled < 2
-      ? 'Il faut au moins 2 joueurs.'
+      ? t('Il faut au moins 2 joueurs.', 'At least 2 players are needed.')
       : room.rules.teams && filled !== 4
-        ? 'Le mode équipes nécessite 4 joueurs.'
+        ? t('Le mode équipes nécessite 4 joueurs.', 'Team mode needs 4 players.')
         : wager && filled !== humans.length
-          ? 'Pas d’ordinateur dans une partie avec mise.'
+          ? t('Pas d’ordinateur dans une partie avec mise.', 'No computer players in a staked game.')
           : guests.length
-            ? `${guests.join(', ')} doi${guests.length > 1 ? 'vent' : 't'} se connecter pour miser.`
+            ? t(`${guests.join(', ')} doi${guests.length > 1 ? 'vent' : 't'} se connecter pour miser.`, `${guests.join(', ')} must sign in to stake.`)
             : broke.length
-              ? `${broke.join(', ')} n’${broke.length > 1 ? 'ont' : 'a'} pas assez de pièces.`
+              ? t(`${broke.join(', ')} n’${broke.length > 1 ? 'ont' : 'a'} pas assez de pièces.`, `${broke.join(', ')} ${broke.length > 1 ? 'don’t' : 'doesn’t'} have enough coins.`)
               : null;
   const pot = wager ? potSplit(wager.stake, Math.max(2, humans.length)) : null;
   const youCantStake = wager && room.you ? room.seats.find((s) => s.color === room.you)?.stakeIssue : null;
@@ -512,11 +533,12 @@ function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; on
     <div className="min-h-dvh bg-[#0b141a] text-[#e9edef]">
       <header className="sticky top-0 z-10 flex items-center gap-1 bg-[#1f2c33] px-1 pt-[env(safe-area-inset-top)] shadow-md">
         <div className="flex h-16 w-full items-center gap-1">
-          <BackButton onClick={onQuit} label="Quitter le salon" text="Salons" />
+          <BackButton onClick={onQuit} label={t('Quitter le salon', 'Leave the room')} text={t('Salons', 'Rooms')} />
           <div className="min-w-0 flex-1 px-1">
-            <h1 className="truncate text-[20px] leading-tight font-medium">Salon privé</h1>
+            <h1 className="truncate text-[20px] leading-tight font-medium">{t('Salon privé', 'Private room')}</h1>
             <p className="truncate text-[13px] text-[#8696a0]">
-              {filled}/4 joueurs{room.spectators.length > 0 && ` · ${room.spectators.length} spectateur(s)`}
+              {t(`${filled}/4 joueurs`, `${filled}/4 players`)}
+              {room.spectators.length > 0 && t(` · ${room.spectators.length} spectateur(s)`, ` · ${room.spectators.length} spectator(s)`)}
             </p>
           </div>
         </div>
@@ -524,17 +546,17 @@ function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; on
 
       <main className="mx-auto max-w-lg pb-36">
         <section className="mx-4 mt-4 rounded-[28px] bg-[#1f2c33] p-5">
-          <p className="text-[12px] font-medium tracking-[0.12em] text-[#8696a0] uppercase">Code du salon</p>
+          <p className="text-[12px] font-medium tracking-[0.12em] text-[#8696a0] uppercase">{t('Code du salon', 'Room code')}</p>
           <div className="mt-1 mb-4 flex items-center justify-between gap-2">
             <span className="font-mono text-[34px] leading-none font-bold tracking-[0.28em]">{room.code}</span>
-            <IconButton label={codeCopied ? 'Code copié' : 'Copier le code'} onClick={copyCode}>
+            <IconButton label={codeCopied ? t('Code copié', 'Code copied') : t('Copier le code', 'Copy the code')} onClick={copyCode}>
               {codeCopied ? <Icon.Check className="text-[#25d366]" /> : <Icon.Copy />}
             </IconButton>
           </div>
           <InviteButtons code={room.code} />
         </section>
 
-        <SectionTitle>Joueurs</SectionTitle>
+        <SectionTitle>{t('Joueurs', 'Players')}</SectionTitle>
         <ul className="divide-y divide-[#222d34]">
           {CORNER_ORDER.map((corner) => {
             const color = campShownAs(corner, boardTurn(room.you));
@@ -554,7 +576,7 @@ function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; on
 
         {room.you && (
           <>
-            <SectionTitle>Ta couleur</SectionTitle>
+            <SectionTitle>{t('Ta couleur', 'Your colour')}</SectionTitle>
             <div className="mx-4 rounded-[28px] bg-[#1f2c33] p-4">
               <ColorPreference assigned={room.you} />
             </div>
@@ -571,7 +593,7 @@ function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; on
         {room.spectators.length > 0 && (
           <ListRow
             leading={<Icon.Eye className="text-[#8696a0]" />}
-            title="Spectateurs"
+            title={t('Spectateurs', 'Spectators')}
             subtitle={room.spectators.join(', ')}
           />
         )}
@@ -581,21 +603,32 @@ function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; on
             <Icon.Info size={20} className="mt-px shrink-0 text-[#f15c6d]" />
             <span className="flex-1">
               {youCantStake === 'guest' ? (
-                <>
-                  Ce salon se joue avec mise : <Link href="/compte" className="font-semibold text-[#00a884]">connecte-toi</Link> pour jouer, ou
-                  laisse ta place.
-                </>
+                t(
+                  <>
+                    Ce salon se joue avec mise : <Link href="/compte" className="font-semibold text-[#00a884]">connecte-toi</Link> pour jouer, ou
+                    laisse ta place.
+                  </>,
+                  <>
+                    This room is played with a stake: <Link href="/compte" className="font-semibold text-[#00a884]">sign in</Link> to play, or
+                    leave your seat.
+                  </>,
+                )
               ) : (
-                <>
-                  Il te faut <CoinAmount value={wager!.stake} premium={wager!.currency === 'premium'} size={14} /> pour jouer dans ce salon.
-                </>
+                t(
+                  <>
+                    Il te faut <CoinAmount value={wager!.stake} premium={wager!.currency === 'premium'} size={14} /> pour jouer dans ce salon.
+                  </>,
+                  <>
+                    You need <CoinAmount value={wager!.stake} premium={wager!.currency === 'premium'} size={14} /> to play in this room.
+                  </>,
+                )
               )}
             </span>
           </div>
         )}
         {wager?.currency === 'premium' && <AdultRequiredBanner className="mx-4 mt-3" />}
 
-        <SectionTitle>Paramètres de la partie</SectionTitle>
+        <SectionTitle>{t('Paramètres de la partie', 'Game settings')}</SectionTitle>
         <ListRow
           leading={
             <span
@@ -609,22 +642,22 @@ function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; on
           title={
             wager ? (
               <span className="flex items-center gap-1.5">
-                Mise <CoinAmount value={wager.stake} premium={wager.currency === 'premium'} size={15} /> par joueur
+                {t('Mise', 'Stake')} <CoinAmount value={wager.stake} premium={wager.currency === 'premium'} size={15} /> {t('par joueur', 'per player')}
               </span>
             ) : (
-              'Sans mise'
+              t('Sans mise', 'No stake')
             )
           }
           subtitle={
             wager && pot ? (
               <span className="flex items-center gap-1">
-                {wager.currency === 'premium' ? 'Premium' : 'Free'} · le gagnant remporte{' '}
+                {wager.currency === 'premium' ? 'Premium' : 'Free'} · {t('le gagnant remporte', 'the winner gets')}{' '}
                 <CoinAmount value={pot.prize} premium={wager.currency === 'premium'} size={13} className="text-[#25d366]" />
               </span>
             ) : room.isHost ? (
-              'Ajoute une mise en pièces Free ou Premium'
+              t('Ajoute une mise en pièces Free ou Premium', 'Add a stake in Free or Premium coins')
             ) : (
-              'Partie amicale'
+              t('Partie amicale', 'Friendly game')
             )
           }
           trailing={room.isHost ? <Icon.ChevronRight className="text-[#8696a0]" /> : undefined}
@@ -636,8 +669,8 @@ function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; on
               <PresetIcon size={22} />
             </span>
           }
-          title={`Règles : ${preset?.label ?? 'personnalisées'}`}
-          subtitle={summary.length ? summary.join(' · ') : 'Règles standard'}
+          title={t(`Règles : ${preset?.label ?? 'personnalisées'}`, `Rules: ${preset?.label ?? 'custom'}`)}
+          subtitle={summary.length ? summary.join(' · ') : t('Règles standard', 'Standard rules')}
           trailing={<Icon.ChevronRight className="text-[#8696a0]" />}
           onClick={() => setRulesOpen(true)}
         />
@@ -647,12 +680,15 @@ function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; on
               <Icon.Palette size={22} />
             </span>
           }
-          title="Apparence"
-          subtitle={`${board.name} · dés ${dice.name.toLowerCase()} · pions ${pawn.name.toLowerCase()}`}
+          title={t('Apparence', 'Appearance')}
+          subtitle={t(
+            `${board.name} · dés ${dice.name.toLowerCase()} · pions ${pawn.name.toLowerCase()}`,
+            `${board.name} · ${dice.name.toLowerCase()} dice · ${pawn.name.toLowerCase()} pawns`,
+          )}
           trailing={<Icon.ChevronRight className="text-[#8696a0]" />}
           onClick={() => setLookOpen(true)}
         />
-        <p className="px-5 pt-1 text-[12.5px] text-[#8696a0]">L’apparence ne change que sur ton appareil.</p>
+        <p className="px-5 pt-1 text-[12.5px] text-[#8696a0]">{t('L’apparence ne change que sur ton appareil.', 'The appearance only changes on your device.')}</p>
       </main>
 
       <div className="fixed inset-x-0 bottom-0 z-10 border-t border-[#222d34] bg-[#0b141a] px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
@@ -674,26 +710,26 @@ function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; on
                 <Icon.Play />
                 {wager ? (
                   <span className="flex items-center gap-1.5">
-                    Miser <CoinAmount value={wager.stake} premium={wager.currency === 'premium'} size={17} /> et lancer
+                    {t('Miser', 'Stake')} <CoinAmount value={wager.stake} premium={wager.currency === 'premium'} size={17} /> {t('et lancer', 'and start')}
                   </span>
                 ) : (
-                  'Lancer la partie'
+                  t('Lancer la partie', 'Start the game')
                 )}
               </button>
               {wager && !startError && (
-                <p className="mt-2 text-center text-[12px] text-[#8696a0]">La mise de chaque joueur est prélevée au lancement.</p>
+                <p className="mt-2 text-center text-[12px] text-[#8696a0]">{t('La mise de chaque joueur est prélevée au lancement.', 'Each player’s stake is taken when the game starts.')}</p>
               )}
             </>
           ) : (
             <div className="flex h-14 items-center justify-center gap-3 rounded-full bg-[#1f2c33] text-[15px] text-[#d1d7db]">
               <span className="size-5 animate-spin rounded-full border-2 border-[#00a884]/30 border-t-[#00a884]" />
-              En attente de l’hôte…
+              {t('En attente de l’hôte…', 'Waiting for the host…')}
             </div>
           )}
         </div>
       </div>
 
-      <Sheet open={botSeat !== null} title="Ajouter un ordinateur" onClose={() => setBotSeat(null)}>
+      <Sheet open={botSeat !== null} title={t('Ajouter un ordinateur', 'Add a computer player')} onClose={() => setBotSeat(null)}>
         <ul className="-mx-5">
           {(['easy', 'medium', 'hard'] as BotLevel[]).map((level) => (
             <li key={level}>
@@ -728,11 +764,11 @@ function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; on
         }}
       />
 
-      <Sheet open={rulesOpen} title="Règles et variantes" onClose={() => setRulesOpen(false)}>
+      <Sheet open={rulesOpen} title={t('Règles et variantes', 'Rules and variants')} onClose={() => setRulesOpen(false)}>
         <RulesEditor rules={room.rules} onChange={room.isHost ? actions.setRules : undefined} />
       </Sheet>
 
-      <Sheet open={lookOpen} title="Apparence" onClose={() => setLookOpen(false)}>
+      <Sheet open={lookOpen} title={t('Apparence', 'Appearance')} onClose={() => setLookOpen(false)}>
         <AppearancePicker />
       </Sheet>
     </div>
@@ -778,6 +814,7 @@ function LobbySeat({
   onAddBot: () => void;
 }) {
   const isYou = seat.color === room.you;
+  const { t } = useLang();
   const colorTag = (
     <span className="inline-flex items-center gap-1.5">
       <span className="size-2 rounded-full" style={{ background: COLOR_HEX[shown] }} />
@@ -789,12 +826,12 @@ function LobbySeat({
     return (
       <ListRow
         leading={<SeatAvatar seat={seat} shown={shown} />}
-        title={<span className="text-[#8696a0]">Place libre</span>}
+        title={<span className="text-[#8696a0]">{t('Place libre', 'Free seat')}</span>}
         subtitle={colorTag}
         trailing={
           <span className="flex items-center gap-1">
             {room.isHost && !room.wager && (
-              <IconButton label="Ajouter un ordinateur" onClick={onAddBot}>
+              <IconButton label={t('Ajouter un ordinateur', 'Add a computer player')} onClick={onAddBot}>
                 <Icon.Robot size={22} />
               </IconButton>
             )}
@@ -803,7 +840,7 @@ function LobbySeat({
               onClick={() => actions.takeSeat(seat.color)}
               className="h-9 rounded-full bg-[#00a884]/15 px-4 text-[14px] font-medium text-[#00a884] transition active:bg-[#00a884]/25"
             >
-              {room.you ? 'Changer' : 'Rejoindre'}
+              {room.you ? t('Changer', 'Switch') : t('Rejoindre', 'Join')}
             </button>
           </span>
         }
@@ -813,12 +850,12 @@ function LobbySeat({
 
   const status =
     seat.kind === 'bot'
-      ? `Ordinateur ${BOT_LEVEL_LABEL[seat.botLevel ?? 'medium'].toLowerCase()}`
+      ? t(`Ordinateur ${BOT_LEVEL_LABEL[seat.botLevel ?? 'medium'].toLowerCase()}`, `${BOT_LEVEL_LABEL[seat.botLevel ?? 'medium']} computer`)
       : !seat.connected
-        ? 'Déconnecté'
+        ? t('Déconnecté', 'Disconnected')
         : seat.isHost
-          ? 'Hôte'
-          : 'Prêt';
+          ? t('Hôte', 'Host')
+          : t('Prêt', 'Ready');
 
   return (
     <ListRow
@@ -826,7 +863,7 @@ function LobbySeat({
       title={
         <span className="flex items-center gap-2">
           <span className="truncate">{seat.name}</span>
-          {isYou && <span className="shrink-0 rounded-full bg-[#00a884]/15 px-2 py-0.5 text-[11px] font-semibold text-[#00a884]">Toi</span>}
+          {isYou && <span className="shrink-0 rounded-full bg-[#00a884]/15 px-2 py-0.5 text-[11px] font-semibold text-[#00a884]">{t('Toi', 'You')}</span>}
         </span>
       }
       subtitle={
@@ -838,13 +875,13 @@ function LobbySeat({
             <>
               <span>·</span>
               {seat.stakeIssue === 'guest' ? (
-                <span className="text-[#f15c6d]">Sans compte</span>
+                <span className="text-[#f15c6d]">{t('Sans compte', 'No account')}</span>
               ) : seat.stakeIssue === 'funds' ? (
-                <span className="text-[#f15c6d]">Solde insuffisant</span>
+                <span className="text-[#f15c6d]">{t('Solde insuffisant', 'Not enough coins')}</span>
               ) : (
                 <span className="inline-flex items-center gap-0.5 text-[#25d366]">
                   <Icon.Check size={14} />
-                  Mise OK
+                  {t('Mise OK', 'Stake OK')}
                 </span>
               )}
             </>
@@ -853,7 +890,7 @@ function LobbySeat({
       }
       trailing={
         room.isHost && !isYou ? (
-          <IconButton label={`Retirer ${seat.name}`} onClick={() => actions.setSeat(seat.color, 'empty')}>
+          <IconButton label={t(`Retirer ${seat.name}`, `Remove ${seat.name}`)} onClick={() => actions.setSeat(seat.color, 'empty')}>
             <Icon.PersonRemove size={22} />
           </IconButton>
         ) : undefined
@@ -893,13 +930,17 @@ function WagerSheet({
   const premium = currency === 'premium';
   const balance = premium ? premiumCoins : profile.coins;
   const picked = stakeTable(current);
-  const customStake = picked && !stakes.tables.some((t) => t.id === picked.id) ? picked : null;
+  const customStake = picked && !stakes.tables.some((s) => s.id === picked.id) ? picked : null;
+  const { t } = useLang();
 
   return (
-    <Sheet open={open} title="Mise de la partie" onClose={onClose}>
+    <Sheet open={open} title={t('Mise de la partie', 'Game stake')} onClose={onClose}>
       <div className="flex flex-col pb-1">
         <p className="text-[13.5px] leading-relaxed text-[#8696a0]">
-          Chaque joueur mise la même somme au lancement. Le gagnant remporte {Math.round(stakes.winnerShare * 100)} % de la cagnotte.
+          {t(
+            `Chaque joueur mise la même somme au lancement. Le gagnant remporte ${Math.round(stakes.winnerShare * 100)} % de la cagnotte.`,
+            `Each player stakes the same amount at the start. The winner gets ${Math.round(stakes.winnerShare * 100)}% of the pot.`,
+          )}
         </p>
 
         <div className={`mt-4 grid grid-cols-2 gap-1 rounded-full bg-[#2a3942] p-1 ${stakes.premiumEnabled ? '' : 'hidden'}`}>
@@ -920,13 +961,13 @@ function WagerSheet({
         </div>
 
         <p className="mt-3 flex items-center justify-center gap-1.5 text-[13px] text-[#8696a0]">
-          Ton solde : <CoinAmount value={signedIn ? balance : 0} premium={premium} size={14} />
+          {t('Ton solde :', 'Your balance:')} <CoinAmount value={signedIn ? balance : 0} premium={premium} size={14} />
         </p>
 
         {hasBots && (
           <p className="mt-3 flex items-start gap-2 rounded-xl bg-[#ffbc38]/10 px-3 py-2.5 text-[13px] text-[#ffd279]">
             <Icon.Info size={18} className="mt-px shrink-0" />
-            Retire d’abord les ordinateurs : seuls des joueurs connectés peuvent miser.
+            {t('Retire d’abord les ordinateurs : seuls des joueurs connectés peuvent miser.', 'Remove the computer players first: only signed-in players can stake.')}
           </p>
         )}
 
@@ -941,8 +982,8 @@ function WagerSheet({
                 <Icon.Block size={22} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[15.5px] text-[#e9edef]">Sans mise</span>
-                <span className="block text-[13px] text-[#8696a0]">Partie amicale, ordinateurs autorisés</span>
+                <span className="block text-[15.5px] text-[#e9edef]">{t('Sans mise', 'No stake')}</span>
+                <span className="block text-[13px] text-[#8696a0]">{t('Partie amicale, ordinateurs autorisés', 'Friendly game, computer players allowed')}</span>
               </span>
               <Radio checked={current === null} />
             </button>
@@ -963,14 +1004,14 @@ function WagerSheet({
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-1.5 text-[15.5px] text-[#e9edef]">
-                      Mise <CoinAmount value={table.stake} premium={premium} size={15} />
+                      {t('Mise', 'Stake')} <CoinAmount value={table.stake} premium={premium} size={15} />
                     </span>
                     <span className="flex items-center gap-1 text-[13px] text-[#8696a0]">
                       {short ? (
-                        <span className="text-[#f15c6d]">Solde insuffisant pour toi</span>
+                        <span className="text-[#f15c6d]">{t('Solde insuffisant pour toi', 'Not enough coins for you')}</span>
                       ) : (
                         <>
-                          À {players} joueurs, gain <CoinAmount value={prize} premium={premium} size={13} className="text-[#25d366]" />
+                          {t(`À ${players} joueurs, gain`, `With ${players} players, prize`)} <CoinAmount value={prize} premium={premium} size={13} className="text-[#25d366]" />
                         </>
                       )}
                     </span>
@@ -989,7 +1030,7 @@ function WagerSheet({
             players={players}
             initial={customStake?.currency === currency ? customStake.stake : undefined}
             selected={customStake?.currency === currency}
-            action="Choisir"
+            action={t('Choisir', 'Choose')}
             disabled={hasBots || !signedIn}
             onSubmit={onPick}
           />
@@ -997,9 +1038,9 @@ function WagerSheet({
         {!signedIn && (
           <p className="mt-2 text-center text-[13px] text-[#8696a0]">
             <Link href="/compte" className="font-semibold text-[#00a884]">
-              Connecte-toi
+              {t('Connecte-toi', 'Sign in')}
             </Link>{' '}
-            pour proposer une mise.
+            {t('pour proposer une mise.', 'to offer a stake.')}
           </p>
         )}
       </div>

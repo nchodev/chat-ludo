@@ -33,6 +33,8 @@ const REASONS: Record<string, { label: string; icon: IconComponent }> = {
   tutorial: { label: 'Tutoriel terminé', icon: Icon.School },
   quest: { label: 'Défi de la semaine', icon: Icon.Calendar },
   referral: { label: 'Parrainage', icon: Icon.PersonAdd },
+  referral_deposit: { label: 'Bonus parrainage : 1er dépôt d’un ami', icon: Icon.Gift },
+  referral_welcome: { label: 'Bonus de bienvenue : 1er dépôt', icon: Icon.Gift },
   tournament: { label: 'Tournoi', icon: Icon.Crown },
   deposit: { label: 'Dépôt Mobile Money', icon: Icon.Add },
   withdrawal: { label: 'Retrait Mobile Money', icon: Icon.Forward },
@@ -140,7 +142,11 @@ export default function WalletPage() {
               Pièces Premium
             </span>
             <CoinAmount value={premiumCoins} premium size={22} className="mt-2 text-[24px]" />
-            <p className="mt-1 text-[11.5px] text-[#aebac1]">Achetées</p>
+            <p className="mt-1 text-[11.5px] text-[#aebac1]">
+              {payments && payments.bonus.locked > 0
+                ? `dont ${Math.min(payments.bonus.locked, premiumCoins).toLocaleString('fr-FR')} de bonus à miser`
+                : 'Achetées'}
+            </p>
           </div>
         </section>
 

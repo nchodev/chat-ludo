@@ -5,12 +5,14 @@ import { useAppearance } from '@/lib/appearance';
 import { COLOR_LABEL } from '@/lib/labels';
 import { setPreferredColor, usePreferredColor } from '@/lib/perspective';
 import { Icon } from './Icons';
+import { useLang } from '@/lib/i18n';
 
 /** The colour this player sees their camp in during online games, whatever seat they get. */
 export function ColorPreference({ assigned }: { assigned?: Color | null }) {
   const preferred = usePreferredColor();
   const { board } = useAppearance();
   const shown = preferred ?? assigned ?? null;
+  const { t } = useLang();
 
   return (
     <div>
@@ -41,8 +43,10 @@ export function ColorPreference({ assigned }: { assigned?: Color | null }) {
         })}
       </div>
       <p className="mt-2 px-1 text-[12.5px] leading-relaxed text-[#8696a0]">
-        Ton camp est toujours en bas du plateau, face à toi, dans cette couleur, même si un autre joueur a choisi la même : chacun
-        la voit sur son écran, et à deux vous restez face à face en diagonale.
+        {t(
+          'Ton camp est toujours en bas du plateau, face à toi, dans cette couleur, même si un autre joueur a choisi la même : chacun la voit sur son écran, et à deux vous restez face à face en diagonale.',
+          'Your side is always at the bottom of the board, facing you, in this colour, even if another player chose the same one: each of you sees it on your own screen, and with two players you stay diagonally opposite.',
+        )}
       </p>
     </div>
   );

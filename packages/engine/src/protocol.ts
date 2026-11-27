@@ -60,7 +60,7 @@ export interface WalletChange {
   currency: 'free' | 'premium';
   delta: number;
   /** `withdrawal_paid` moves no coins (they left at the request): the money was sent on Wave. */
-  reason: 'stake' | 'prize' | 'refund' | 'forfeit' | 'admin' | 'deposit' | 'withdrawal_refund' | 'withdrawal_paid';
+  reason: 'stake' | 'prize' | 'refund' | 'forfeit' | 'admin' | 'deposit' | 'referral_deposit' | 'referral_welcome' | 'withdrawal_refund' | 'withdrawal_paid';
   balance: { free: number; premium: number };
   /** Why the platform team changed the balance (`admin`) or refused a withdrawal (`withdrawal_refund`). */
   note?: string;
@@ -360,7 +360,31 @@ export interface MatchStatus {
   table: string | null;
 }
 
+/** What a notification is about: sets its icon in the notification centre. */
+export type NotificationKind = 'wallet' | 'game' | 'referral' | 'friend' | 'announcement';
+
+/** An entry of the notification centre (the bell). Announcements are sent by the admins to everyone. */
+export interface AppNotification {
+  id: number;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  /** Opened when the notification is tapped; null when it only informs. */
+  url: string | null;
+  createdAt: number;
+}
+
+export interface NotificationsView {
+  items: AppNotification[];
+  /** Notifications newer than the last time the player opened the bell. */
+  unread: number;
+  /** Ids up to this one were already seen when the list was loaded. */
+  seenUpTo: number;
+}
+
 export interface ServerToClientEvents {
+  /** A new entry in the notification centre. */
+  'notification:new': (notification: AppNotification) => void;
   'room:state': (room: RoomView) => void;
   'room:closed': (reason: string) => void;
   'room:reaction': (message: ReactionMessage) => void;

@@ -7,6 +7,7 @@ import { ChatList, chatRows } from '@/components/chat/ChatList';
 import { GroupInfoSheet, NewGroupSheet } from '@/components/chat/GroupSheets';
 import { ChatThread, type ThreadItem } from '@/components/chat/ChatThread';
 import { CoinBadge } from '@/components/Coins';
+import { NotificationBell } from '@/components/NotificationBell';
 import { DailyBonusPrompt } from '@/components/DailyCard';
 import { FriendsTab } from '@/components/friends/FriendsTab';
 import { GamesCatalog } from '@/components/GameCard';
@@ -18,6 +19,7 @@ import { NotificationsPrompt } from '@/components/chat/NotificationsPrompt';
 import { onOpenChatRequest, setViewingChat, useChat } from '@/lib/chat';
 import { api } from '@/lib/api';
 import { getSessionToken, useProfile } from '@/lib/profile';
+import { useLang } from '@/lib/i18n';
 import { uploadVoice, type Recording } from '@/lib/voice';
 import { rememberMedia, uploadImage } from '@/lib/media';
 import type { OutgoingPhoto } from '@/components/chat/PhotoComposer';
@@ -42,13 +44,13 @@ function EmptyState({ icon, title, children }: { icon: ReactNode; title: string;
   );
 }
 
-const GATE_PERKS = [
-  { icon: Icon.Chat, title: 'Messages privés', text: 'Discute en direct avec tes amis.' },
-  { icon: Icon.PersonAdd, title: 'Ajoute tes amis', text: 'Retrouve-les avec leur pseudo LuChat.' },
-  { icon: Icon.Bell, title: 'Notifications', text: 'Sois prévenu à chaque nouveau message.' },
-];
-
 function SocialGate() {
+  const { t } = useLang();
+  const GATE_PERKS = [
+    { icon: Icon.Chat, title: t('Messages privés', 'Private messages'), text: t('Discute en direct avec tes amis.', 'Chat live with your friends.') },
+    { icon: Icon.PersonAdd, title: t('Ajoute tes amis', 'Add your friends'), text: t('Retrouve-les avec leur pseudo LuChat.', 'Find them by their LuChat username.') },
+    { icon: Icon.Bell, title: t('Notifications', 'Notifications'), text: t('Sois prévenu à chaque nouveau message.', 'Get notified of every new message.') },
+  ];
   return (
     <section className="flex flex-col items-center px-2 pt-8 text-center">
       <div className="relative mb-6">
@@ -61,9 +63,9 @@ function SocialGate() {
         </span>
       </div>
 
-      <h2 className="text-[22px] font-semibold text-[#e9edef]">Connecte-toi pour discuter</h2>
+      <h2 className="text-[22px] font-semibold text-[#e9edef]">{t('Connecte-toi pour discuter', 'Sign in to chat')}</h2>
       <p className="mt-2 max-w-xs text-[14.5px] leading-relaxed text-[#8696a0]">
-        Les discussions et les amis sont liés à ton compte LuChat.
+        {t('Les discussions et les amis sont liés à ton compte LuChat.', 'Chats and friends are tied to your LuChat account.')}
       </p>
 
       <ul className="mt-7 w-full overflow-hidden rounded-2xl bg-[#1f2c33] text-left">
@@ -84,23 +86,28 @@ function SocialGate() {
         href="/compte"
         className="mt-7 flex h-12 w-full items-center justify-center rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] shadow-lg shadow-[#00a884]/20 transition active:scale-[0.98] active:opacity-90"
       >
-        Créer un compte
+        {t('Créer un compte', 'Create an account')}
       </Link>
       <Link
         href="/compte?mode=login"
         className="mt-3 flex h-12 w-full items-center justify-center rounded-full border border-[#2a3942] text-[15px] font-semibold text-[#00a884] transition active:bg-white/5"
       >
-        J’ai déjà un compte
+        {t('J’ai déjà un compte', 'I already have an account')}
       </Link>
       <p className="mt-5 flex items-center gap-1.5 text-[12.5px] text-[#8696a0]">
         <Icon.Shield size={16} />
-        Gratuit, sans e-mail ni numéro de téléphone
+        {t('Gratuit, sans e-mail ni numéro de téléphone', 'Free, no email or phone number needed')}
       </p>
     </section>
   );
 }
 
-const TAB_TITLE: Record<Tab, string> = { chats: 'Discussions', friends: 'Amis', games: 'Jeux', profile: 'Profil' };
+const TAB_TITLE: Record<Tab, [string, string]> = {
+  chats: ['Discussions', 'Chats'],
+  friends: ['Amis', 'Friends'],
+  games: ['Jeux', 'Games'],
+  profile: ['Profil', 'Profile'],
+};
 
 function TabButton({
   active,
@@ -152,6 +159,8 @@ export default function HomePage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { session } = useProfile();
+  const { t } = useLang();
+  const tabTitle = (name: Tab) => t(...TAB_TITLE[name]);
 
   useEffect(() => {
     if (!notice && !error) return;
@@ -257,7 +266,7 @@ export default function HomePage() {
         if (!alive) return;
         setSocial(data);
       })
-      .catch((err) => alive && setError(err instanceof Error ? err.message : 'Impossible de charger les chats.'))
+      .catch((err) => alive && setError(err instanceof Error ? err.message : t('Impossible de charger les chats.', 'Could not load the chats.')))
       .finally(() => alive && setLoadingSocial(false));
 
     return () => {
@@ -280,7 +289,7 @@ export default function HomePage() {
         setThreadLevel(data.friend.level);
         setThreadGroup(data.group ?? null);
       })
-      .catch((err) => alive && setError(err instanceof Error ? err.message : 'Impossible de charger la conversation.'))
+      .catch((err) => alive && setError(err instanceof Error ? err.message : t('Impossible de charger la conversation.', 'Could not load the conversation.')))
       .finally(() => alive && setLoadingThread(false));
 
     return () => {
@@ -467,21 +476,21 @@ export default function HomePage() {
     if (!session) return <SocialGate />;
     if (loadingSocial)
       return (
-        <EmptyState icon={<Icon.Hourglass size={36} />} title="Chargement des chats">
-          On prépare tes conversations…
+        <EmptyState icon={<Icon.Hourglass size={36} />} title={t('Chargement des chats', 'Loading chats')}>
+          {t('On prépare tes conversations…', 'Getting your conversations ready…')}
         </EmptyState>
       );
     if (!social || (social.friends.length === 0 && social.groups.length === 0)) {
       return (
-        <EmptyState icon={<Icon.Chat size={36} />} title="Aucune conversation">
-          Ajoute un ami avec son pseudo LuChat, puis commence une discussion privée.
+        <EmptyState icon={<Icon.Chat size={36} />} title={t('Aucune conversation', 'No conversations')}>
+          {t('Ajoute un ami avec son pseudo LuChat, puis commence une discussion privée.', 'Add a friend by their LuChat username, then start a private chat.')}
           <button
             type="button"
             onClick={() => setTab('friends')}
             className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] active:opacity-90"
           >
             <Icon.PersonAdd size={20} />
-            Ajouter un ami
+            {t('Ajouter un ami', 'Add a friend')}
           </button>
         </EmptyState>
       );
@@ -595,13 +604,14 @@ export default function HomePage() {
           <h1 className="flex shrink-0 items-center gap-2">
             <LuChatLogo size={30} />
             <LuChatWordmark />
-            <span className="sr-only">Discussions</span>
+            <span className="sr-only">{tabTitle('chats')}</span>
           </h1>
         ) : (
-          <h1 className="shrink-0 text-[1.35rem] font-medium tracking-tight">{TAB_TITLE[tab]}</h1>
+          <h1 className="shrink-0 text-[1.35rem] font-medium tracking-tight">{tabTitle(tab)}</h1>
         )}
-        <div className="flex min-w-0 items-center justify-end gap-2">
+        <div className="flex min-w-0 items-center justify-end gap-1">
           <CoinBadge />
+          <NotificationBell />
         </div>
       </header>
 
@@ -635,7 +645,7 @@ export default function HomePage() {
           <TabButton
             active={tab === 'chats'}
             name="chats"
-            label="Discussions"
+            label={tabTitle('chats')}
             badge={totalUnread}
             onClick={() => {
               setActiveChat(null);
@@ -645,12 +655,12 @@ export default function HomePage() {
           <TabButton
             active={tab === 'friends'}
             name="friends"
-            label="Amis"
+            label={tabTitle('friends')}
             badge={social?.incoming.length}
             onClick={() => setTab('friends')}
           />
-          <TabButton active={tab === 'games'} name="games" label="Jeux" onClick={() => setTab('games')} />
-          <TabButton active={tab === 'profile'} name="profile" label="Profil" onClick={() => setTab('profile')} />
+          <TabButton active={tab === 'games'} name="games" label={tabTitle('games')} onClick={() => setTab('games')} />
+          <TabButton active={tab === 'profile'} name="profile" label={tabTitle('profile')} onClick={() => setTab('profile')} />
         </div>
       </nav>
     </main>

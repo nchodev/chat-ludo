@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { sfx } from '@/lib/sound';
 import { DEFAULT_DICE_STYLE, type ColorShades, type DiceStyle } from '@/lib/themes';
+import { tr } from '@/lib/i18n';
 
 const PIPS: Record<number, [number, number][]> = {
   1: [[1, 1]],
@@ -113,7 +114,7 @@ export function Dice({ value, rollId, shades, diceStyle, canRoll, onRoll, size }
       type="button"
       onClick={onRoll}
       disabled={!canRoll}
-      aria-label={canRoll ? 'Lancer le dé' : `Dé : ${shown}`}
+      aria-label={canRoll ? tr('Lancer le dé', 'Roll the die') : tr(`Dé : ${shown}`, `Die: ${shown}`)}
       className={`shrink-0 rounded-[22px] ${canRoll ? 'dice-invite cursor-pointer' : ''} ${rolling ? 'dice-rolling' : ''}`}
     >
       <DiceFace value={shown} shades={shades} diceStyle={diceStyle} highlighted={canRoll} size={size} />

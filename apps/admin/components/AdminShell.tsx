@@ -20,6 +20,8 @@ const NAV = [
   { href: '/salons', label: 'Salons en direct', icon: Icon.Casino },
   { href: '/cagnottes', label: 'Cagnottes', icon: Icon.Wallet },
   { href: '/paiements', label: 'Paiements Wave', icon: Icon.Coin },
+  { href: '/parrainage', label: 'Parrainage', icon: Icon.Gift },
+  { href: '/annonces', label: 'Annonces', icon: Icon.Bell },
   { href: '/signalements', label: 'Signalements', icon: Icon.Flag },
   { href: '/jeux', label: 'Jeux', icon: Icon.Casino },
   { href: '/reglages', label: 'Réglages des mises', icon: Icon.Tune },

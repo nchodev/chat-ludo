@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { PaymentError, checkDeposit, handlePaymentWebhook, paymentsView, requestWithdrawal, startDeposit } from './payments';
+import { PaymentError, checkDeposit, handlePaymentWebhook, paymentSettings, paymentsView, requestWithdrawal, startDeposit } from './payments';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   COLORS,
@@ -13,8 +13,9 @@ import {
   isColor,
   isReactionEmoji,
   chatPreviewText,
-  REFERRAL,
   REFERRAL_CODE,
+  type NotificationsView,
+  type ReferralRules,
   type ChatInvite,
   type ReferralView,
   MAX_CAPTION_LENGTH,
@@ -52,6 +53,7 @@ import * as db from './db';
 import { meaningfulIp } from './identity';
 import { dummyHash, hashPassword, verifyPassword } from './passwords';
 import { linkPreview, normalizePreviewUrl } from './link-preview';
+import { notify } from './notify';
 import { VAPID_PUBLIC_KEY, sendPush } from './push';
 import { RateLimiter, cleanText, clientIp } from './security';
 
@@ -741,6 +743,12 @@ const routes: Record<string, Handler> = {
       // The invitation link is also a friend request already accepted: they can chat and play at once.
       db.createFriendship(user.id, referredBy);
       push(referredBy, 'social:changed', []);
+      notify(referredBy, {
+        kind: 'referral',
+        title: `${user.username} a rejoint LuChat avec ton lien`,
+        body: 'Vous êtes maintenant amis. Suis sa progression et tes bonus dans Parrainage.',
+        url: '/parrainage',
+      });
     }
     return { token: newSession(user.id), ...publicProfile(user) };
   },
@@ -777,13 +785,37 @@ const routes: Record<string, Handler> = {
     return publicProfile(user);
   },
 
+  'GET /api/notifications': (req): NotificationsView => {
+    const user = requireUser(req);
+    const before = Number(new URL(req.url ?? '', 'http://x').searchParams.get('before')) || undefined;
+    return { items: db.notificationsOf(user.id, 40, before), unread: db.unreadNotificationCount(user.id), seenUpTo: db.notificationsSeenId(user.id) };
+  },
+
+  /** The player opened the bell. */
+  'POST /api/notifications/seen': (req) => {
+    const user = requireUser(req);
+    db.markNotificationsSeen(user.id);
+    return { unread: 0 };
+  },
+
+  /** The referral rules in force, for the invitation screens (guests included). */
+  'GET /api/referral/rules': (): ReferralRules => referralRules(),
+
   'GET /api/referrals': (req): ReferralView => {
     const user = requireUser(req);
     const by = db.referrerOf(user.id);
     return {
-      invited: db.referralsOf(user.id).map((r) => ({ username: r.username, games: r.games, rewarded: r.rewardedAt !== null, joinedAt: r.joinedAt })),
+      invited: db.referralsOf(user.id).map((r) => ({
+        username: r.username,
+        games: r.games,
+        rewarded: r.rewardedAt !== null,
+        joinedAt: r.joinedAt,
+        depositBonus: r.depositBonus,
+      })),
       earned: db.referralEarnings(user.id),
-      invitedBy: by && { username: by.username, games: by.games, rewarded: by.rewardedAt !== null },
+      premiumEarned: db.referralPremiumEarnings(user.id),
+      rules: referralRules(),
+      invitedBy: by && { username: by.username, games: by.games, rewarded: by.rewardedAt !== null, welcomeBonus: by.welcomeBonus },
     };
   },
 
@@ -931,6 +963,11 @@ const routes: Record<string, Handler> = {
     if (target.id === user.id) throw new HttpError(400, 'Tu ne peux pas t’ajouter toi-même.');
     const status = db.createFriendRequest(user.id, target.id);
     if (status === 'requested' || status === 'accepted') push(target.id, 'social:changed', []);
+    if (status === 'requested') {
+      notify(target.id, { kind: 'friend', title: `${user.username} veut être ton ami`, body: 'Accepte son invitation pour discuter et jouer ensemble.', url: '/?tab=friends' });
+    } else if (status === 'accepted') {
+      notify(target.id, { kind: 'friend', title: `${user.username} a accepté ton invitation`, body: 'Vous êtes maintenant amis.', url: '/?tab=friends' });
+    }
     const labels: Record<typeof status, string> = {
       requested: `Invitation envoyée à ${target.username}.`,
       pending: `Invitation déjà envoyée à ${target.username}.`,
@@ -948,6 +985,7 @@ const routes: Record<string, Handler> = {
     if (body.action === 'accept') {
       db.createFriendship(user.id, requester.id);
       push(requester.id, 'social:changed', []);
+      notify(requester.id, { kind: 'friend', title: `${user.username} a accepté ton invitation`, body: 'Vous êtes maintenant amis.', url: '/?tab=friends' });
       return { message: `${requester.username} est maintenant dans tes amis.`, ...socialState(user) };
     }
     if (body.action === 'decline') {
@@ -1108,18 +1146,31 @@ export function recordOnlineGame(
   return summary;
 }
 
+function referralRules(): ReferralRules {
+  return { ...db.referralSettings(), minDeposit: paymentSettings('wave').deposit.min };
+}
+
 /** An invited player finished an online game against people: maybe time for both welcome bonuses. */
 function advanceReferral(userId: number) {
   try {
-    const reward = db.progressReferral(userId, REFERRAL);
+    const rules = db.referralSettings().free;
+    const reward = db.progressReferral(userId, rules);
     if (!reward) return;
     const newcomer = usernameOf(userId) ?? 'Ton filleul';
     if (reward.referrerCoins) {
-      void sendPush(reward.referrerId, {
+      notify(reward.referrerId, {
+        kind: 'referral',
         title: 'Parrainage réussi',
-        body: `${newcomer} a joué ses ${REFERRAL.gamesNeeded} premières parties : +${reward.referrerCoins} pièces pour toi.`,
+        body: `${newcomer} a joué ses ${rules.gamesNeeded} premières parties : +${reward.referrerCoins} pièces Free pour toi.`,
         url: '/parrainage',
-        tag: `referral-${userId}`,
+      });
+    }
+    if (reward.newcomerCoins) {
+      notify(userId, {
+        kind: 'referral',
+        title: `Bonus de bienvenue : +${reward.newcomerCoins} pièces`,
+        body: `Tu as joué tes ${rules.gamesNeeded} premières parties en ligne. Merci d’avoir rejoint LuChat !`,
+        url: '/parrainage',
       });
     }
   } catch (err) {

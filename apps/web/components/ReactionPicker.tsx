@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { REACTIONS, REACTION_COOLDOWN_MS } from '@ludo/engine';
+import { tr } from '@/lib/i18n';
 
 const EMOJIS = REACTIONS.filter((r) => !r.text);
 const PHRASES = REACTIONS.filter((r) => r.text);
@@ -35,7 +36,7 @@ export function ReactionButton({ onReact, hidden, onHiddenChange }: ReactionButt
       <button
         type="button"
         className={`icon-btn relative size-11 shrink-0 text-xl ${open ? 'bg-white/25' : ''}`}
-        aria-label="Réagir"
+        aria-label={tr('Réagir', 'React')}
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
@@ -46,7 +47,7 @@ export function ReactionButton({ onReact, hidden, onHiddenChange }: ReactionButt
         <>
           <button
             type="button"
-            aria-label="Fermer les réactions"
+            aria-label={tr('Fermer les réactions', 'Close reactions')}
             className="fixed inset-0 z-30 cursor-default"
             onClick={() => setOpen(false)}
           />
@@ -67,12 +68,12 @@ export function ReactionButton({ onReact, hidden, onHiddenChange }: ReactionButt
                 type="button"
                 onClick={() => onHiddenChange(!hidden)}
                 aria-pressed={hidden}
-                title={hidden ? 'Afficher les réactions des autres' : 'Masquer les réactions des autres'}
+                title={hidden ? tr('Afficher les réactions des autres', 'Show other players’ reactions') : tr('Masquer les réactions des autres', 'Hide other players’ reactions')}
                 className={`ml-1 shrink-0 rounded-full px-2.5 py-1.5 text-[11px] font-semibold whitespace-nowrap transition ${
                   hidden ? 'bg-emerald-400/25 text-emerald-200' : 'bg-white/10 text-white/60'
                 }`}
               >
-                {hidden ? '🔕 Masquées' : '🔔 Visibles'}
+                {hidden ? tr('🔕 Masquées', '🔕 Hidden') : tr('🔔 Visibles', '🔔 Shown')}
               </button>
             </div>
             <div className="mt-1 flex gap-1.5 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

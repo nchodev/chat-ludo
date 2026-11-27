@@ -5,6 +5,7 @@ import type { Rules } from '@ludo/engine';
 import { RulesForm } from './RulesForm';
 import { Sheet } from './Sheet';
 import { RULES_PRESETS, matchPreset, rulesSummary } from '@/lib/labels';
+import { useLang } from '@/lib/i18n';
 
 interface RulesCardProps {
   rules: Rules;
@@ -14,14 +15,15 @@ interface RulesCardProps {
 
 export function RulesCard({ rules, onChange, readOnly }: RulesCardProps) {
   const [open, setOpen] = useState(false);
+  const { t } = useLang();
   const preset = matchPreset(rules);
 
   return (
     <section className="card flex flex-col gap-3 p-4">
       <div className="flex items-center justify-between">
-        <h2 className="font-bold">Règles</h2>
+        <h2 className="font-bold">{t('Règles', 'Rules')}</h2>
         <button type="button" className="text-sm font-semibold text-emerald-300" onClick={() => setOpen(true)}>
-          {readOnly ? 'Voir le détail' : 'Personnaliser ›'}
+          {readOnly ? t('Voir le détail', 'See details') : t('Personnaliser ›', 'Customise ›')}
         </button>
       </div>
 
@@ -49,7 +51,7 @@ export function RulesCard({ rules, onChange, readOnly }: RulesCardProps) {
             {preset.icon} {preset.label}
           </li>
         )}
-        {!preset && <li className="rounded-full bg-amber-400/20 px-2.5 py-1 text-xs font-semibold text-amber-200">Personnalisées</li>}
+        {!preset && <li className="rounded-full bg-amber-400/20 px-2.5 py-1 text-xs font-semibold text-amber-200">{t('Personnalisées', 'Custom')}</li>}
         {rulesSummary(rules).map((r) => (
           <li key={r} className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/80">
             {r}
@@ -57,7 +59,7 @@ export function RulesCard({ rules, onChange, readOnly }: RulesCardProps) {
         ))}
       </ul>
 
-      <Sheet open={open} title="Règles et variantes" onClose={() => setOpen(false)}>
+      <Sheet open={open} title={t('Règles et variantes', 'Rules and variants')} onClose={() => setOpen(false)}>
         <RulesForm rules={rules} onChange={onChange} disabled={readOnly} />
       </Sheet>
     </section>

@@ -1,10 +1,12 @@
 import type { Metadata, Viewport } from 'next';
 import { Fredoka } from 'next/font/google';
+import { AppLock } from '@/components/AppLock';
 import { ChatNotifier } from '@/components/chat/ChatNotifier';
 import { ConnectionBanner } from '@/components/ConnectionBanner';
 import { InstallPrompt } from '@/components/InstallPrompt';
 import { ReferralCapture } from '@/components/ReferralCapture';
 import { ServiceWorker } from '@/components/ServiceWorker';
+import { EARLY_LOCK_SCRIPT } from '@/lib/appLockScript';
 import { NavigationTracker } from '@/lib/navigation';
 import './globals.css';
 
@@ -28,7 +30,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="fr" className={fredoka.variable}>
+    // The lock script may mark <html> before React hydrates it.
+    <html lang="fr" className={fredoka.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: EARLY_LOCK_SCRIPT }} />
+      </head>
       <body className="min-h-dvh font-sans antialiased">
         {children}
         <ConnectionBanner />
@@ -37,6 +43,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ChatNotifier />
         <NavigationTracker />
         <ReferralCapture />
+        <AppLock />
       </body>
     </html>
   );

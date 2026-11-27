@@ -15,6 +15,7 @@ import {
 import { CoinAmount, CoinIcon } from './Coins';
 import { Icon } from './Icons';
 import { Sheet } from './Sheet';
+import { tr, useLang } from '@/lib/i18n';
 import { claimDailyBonus, useProfile } from '@/lib/profile';
 import { sfx } from '@/lib/sound';
 
@@ -53,7 +54,7 @@ function untilNextWeek(): string {
   const daysLeft = 7 - ((now.getUTCDay() + 6) % 7);
   const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysLeft);
   const hours = Math.ceil((next - now.getTime()) / 3_600_000);
-  return hours >= 24 ? `${Math.floor(hours / 24)} j ${hours % 24} h` : `${hours} h`;
+  return hours >= 24 ? tr(`${Math.floor(hours / 24)} j ${hours % 24} h`, `${Math.floor(hours / 24)} d ${hours % 24} h`) : `${hours} h`;
 }
 
 /** Where the player is in the 7-day login cycle, and how to claim today's bonus. */
@@ -77,7 +78,7 @@ function useLoginBonus() {
       sfx.finish();
       setClaimed(coins);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Impossible pour le moment.');
+      setError(err instanceof Error ? err.message : tr('Impossible pour le moment.', 'Not possible right now.'));
     } finally {
       setBusy(false);
     }
@@ -87,6 +88,7 @@ function useLoginBonus() {
 }
 
 function StreakCalendar({ cycleDay, available }: { cycleDay: number; available: boolean }) {
+  const { t } = useLang();
   return (
     <ol className="grid grid-cols-7 gap-1.5">
       {LOGIN_REWARDS.map((coins, i) => {
@@ -105,7 +107,7 @@ function StreakCalendar({ cycleDay, available }: { cycleDay: number; available: 
                   : 'bg-[#0b141a]/60 text-[#8696a0]'
             }`}
           >
-            <span className="font-semibold">J{n}</span>
+            <span className="font-semibold">{t(`J${n}`, `D${n}`)}</span>
             <span className="grid size-6 place-items-center">
               {done ? <Icon.Check size={20} /> : last ? <Icon.Gift size={20} className={today ? '' : 'text-[#ffbc38]'} /> : <CoinIcon size={18} />}
             </span>
@@ -120,6 +122,7 @@ function StreakCalendar({ cycleDay, available }: { cycleDay: number; available: 
 /** Daily login bonus, the day's challenges and the week's quests. */
 export function DailyCard() {
   const bonus = useLoginBonus();
+  const { t } = useLang();
   if (!bonus.ready) return <section className="h-64 animate-pulse rounded-[28px] bg-[#1f2c33]" />;
   const { profile, day, available, streak, cycleDay } = bonus;
   const daily = dailyState(profile, day);
@@ -135,12 +138,12 @@ export function DailyCard() {
             <Icon.Gift size={22} />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-[16px] font-medium text-[#e9edef]">Bonus du jour</span>
-            <span className="block text-[13px] text-[#8696a0]">Connecte-toi chaque jour, le 7e jour rapporte le plus</span>
+            <span className="block text-[16px] font-medium text-[#e9edef]">{t('Bonus du jour', 'Daily bonus')}</span>
+            <span className="block text-[13px] text-[#8696a0]">{t('Connecte-toi chaque jour, le 7e jour rapporte le plus', 'Sign in every day, day 7 pays the most')}</span>
           </span>
           <span className="flex shrink-0 items-center gap-1 rounded-full bg-[#ff7a45]/15 px-2.5 py-1 text-[12.5px] font-semibold text-[#ff9a6b]">
             <Icon.Flame size={15} />
-            {series} j
+            {t(`${series} j`, `${series} d`)}
           </span>
         </div>
         <StreakCalendar cycleDay={cycleDay} available={available} />
@@ -151,14 +154,14 @@ export function DailyCard() {
             disabled={bonus.busy}
             className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] transition active:scale-[0.98] disabled:opacity-60"
           >
-            Récupérer <CoinAmount value={LOGIN_REWARDS[cycleDay - 1]} size={18} />
+            {t('Récupérer', 'Claim')} <CoinAmount value={LOGIN_REWARDS[cycleDay - 1]} size={18} />
           </button>
         ) : (
           <p className="mt-3 text-center text-[13px] text-[#8696a0]">
             {bonus.claimed ? (
-              <span className="font-semibold text-[#25d366]">+{bonus.claimed} pièces récupérées</span>
+              <span className="font-semibold text-[#25d366]">{t(`+${bonus.claimed} pièces récupérées`, `+${bonus.claimed} coins claimed`)}</span>
             ) : (
-              'Reviens demain pour continuer ta série.'
+              t('Reviens demain pour continuer ta série.', 'Come back tomorrow to keep your streak.')
             )}
           </p>
         )}
@@ -167,10 +170,10 @@ export function DailyCard() {
 
       <div>
         <div className="mb-2 flex items-center justify-between px-1">
-          <h2 className="text-[13px] font-medium text-[#00a884]">Défis du jour</h2>
+          <h2 className="text-[13px] font-medium text-[#00a884]">{t('Défis du jour', 'Daily challenges')}</h2>
           <span className="flex items-center gap-1 text-[12px] text-[#8696a0]">
             <Icon.Timer size={14} />
-            Nouveaux dans {untilMidnightUtc()}
+            {t('Nouveaux dans', 'New in')} {untilMidnightUtc()}
           </span>
         </div>
         <ul className="flex flex-col gap-2">
@@ -190,10 +193,10 @@ export function DailyCard() {
 
       <div>
         <div className="mb-2 flex items-center justify-between px-1">
-          <h2 className="text-[13px] font-medium text-[#00a884]">Défis de la semaine</h2>
+          <h2 className="text-[13px] font-medium text-[#00a884]">{t('Défis de la semaine', 'Weekly challenges')}</h2>
           <span className="flex items-center gap-1 text-[12px] text-[#8696a0]">
             <Icon.Calendar size={14} />
-            Nouveaux dans {untilNextWeek()}
+            {t('Nouveaux dans', 'New in')} {untilNextWeek()}
           </span>
         </div>
         <ul className="flex flex-col gap-2">
@@ -263,6 +266,7 @@ const DISMISSED_KEY = 'luchat:daily-dismissed';
 /** Opens once a day on the home screen while today's login bonus is waiting. */
 export function DailyBonusPrompt() {
   const bonus = useLoginBonus();
+  const { t } = useLang();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -279,7 +283,7 @@ export function DailyBonusPrompt() {
 
   const coins = LOGIN_REWARDS[bonus.cycleDay - 1];
   return (
-    <Sheet open={open} title="Bonus du jour" onClose={close}>
+    <Sheet open={open} title={t('Bonus du jour', 'Daily bonus')} onClose={close}>
       <div className="flex flex-col items-center gap-4 pb-1 text-center">
         <span className="pop-in grid size-20 place-items-center rounded-full bg-gradient-to-br from-[#ffbc38] to-[#ff7a45] text-[#0b141a] shadow-xl shadow-[#ffbc38]/20">
           {bonus.claimed ? <Icon.Check size={44} /> : <Icon.Gift size={42} />}
@@ -287,18 +291,28 @@ export function DailyBonusPrompt() {
         {bonus.claimed ? (
           <>
             <div>
-              <p className="text-[20px] font-semibold">+{bonus.claimed} pièces</p>
-              <p className="mt-1 text-[14px] text-[#8696a0]">Série de {bonus.profile.login.streak} jour{bonus.profile.login.streak > 1 ? 's' : ''}. À demain !</p>
+              <p className="text-[20px] font-semibold">{t(`+${bonus.claimed} pièces`, `+${bonus.claimed} coins`)}</p>
+              <p className="mt-1 text-[14px] text-[#8696a0]">
+                {t(
+                  `Série de ${bonus.profile.login.streak} jour${bonus.profile.login.streak > 1 ? 's' : ''}. À demain !`,
+                  `${bonus.profile.login.streak}-day streak. See you tomorrow!`,
+                )}
+              </p>
             </div>
             <button type="button" onClick={close} className="h-12 w-full rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a]">
-              Super
+              {t('Super', 'Great')}
             </button>
           </>
         ) : (
           <>
             <div>
-              <p className="text-[20px] font-semibold">Jour {bonus.cycleDay} de ta série</p>
-              <p className="mt-1 text-[14px] text-[#8696a0]">Reviens chaque jour : le 7e jour rapporte {LOGIN_REWARDS[LOGIN_REWARDS.length - 1]} pièces.</p>
+              <p className="text-[20px] font-semibold">{t(`Jour ${bonus.cycleDay} de ta série`, `Day ${bonus.cycleDay} of your streak`)}</p>
+              <p className="mt-1 text-[14px] text-[#8696a0]">
+                {t(
+                  `Reviens chaque jour : le 7e jour rapporte ${LOGIN_REWARDS[LOGIN_REWARDS.length - 1]} pièces.`,
+                  `Come back every day: day 7 pays ${LOGIN_REWARDS[LOGIN_REWARDS.length - 1]} coins.`,
+                )}
+              </p>
             </div>
             <div className="w-full">
               <StreakCalendar cycleDay={bonus.cycleDay} available={bonus.available} />
@@ -309,7 +323,7 @@ export function DailyBonusPrompt() {
               disabled={bonus.busy}
               className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] transition active:scale-[0.98] disabled:opacity-60"
             >
-              Récupérer <CoinAmount value={coins} size={18} />
+              {t('Récupérer', 'Claim')} <CoinAmount value={coins} size={18} />
             </button>
             {bonus.error && <p className="text-[13px] text-[#f15c6d]">{bonus.error}</p>}
           </>

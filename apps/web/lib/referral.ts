@@ -1,6 +1,8 @@
 'use client';
 
-import { REFERRAL_CODE } from '@ludo/engine';
+import { useEffect, useState } from 'react';
+import { REFERRAL_CODE, type ReferralRules } from '@ludo/engine';
+import { api } from './api';
 
 const REF_KEY = 'luchat:ref';
 
@@ -20,4 +22,30 @@ export function clearReferrer() {
 
 export function referralLink(username: string): string {
   return `${window.location.origin}/?ref=${encodeURIComponent(username)}`;
+}
+
+let rulesCache: { rules: ReferralRules; at: number } | null = null;
+let rulesRequest: Promise<ReferralRules> | null = null;
+const RULES_TTL_MS = 5 * 60_000;
+
+/** The referral rules set by the admins; null until loaded (or when the server can't be reached). */
+export function useReferralRules(): ReferralRules | null {
+  const [rules, setRules] = useState<ReferralRules | null>(() => rulesCache?.rules ?? null);
+  useEffect(() => {
+    if (rulesCache && Date.now() - rulesCache.at < RULES_TTL_MS) return;
+    rulesRequest ??= api<ReferralRules>('/referral/rules')
+      .then((loaded) => {
+        rulesCache = { rules: loaded, at: Date.now() };
+        return loaded;
+      })
+      .finally(() => {
+        rulesRequest = null;
+      });
+    let alive = true;
+    rulesRequest.then((loaded) => alive && setRules(loaded)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return rules;
 }

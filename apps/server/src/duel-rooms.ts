@@ -33,7 +33,6 @@ import {
   listLiveRooms,
   notAdultConfirmed,
   openPot,
-  overPremiumCap,
   refundPot,
   saveLiveRoom,
   settlePot,
@@ -518,13 +517,6 @@ export class DuelManager {
       if (minors.length) {
         const names = room.players.filter((t) => minors.includes(room.members.get(t)!.userId!)).map((t) => room.members.get(t)!.name);
         throw new DuelRoomError(`${names.join(', ')} doi${names.length > 1 ? 'vent' : 't'} d’abord attester avoir 18 ans ou plus pour miser des pièces Premium.`);
-      }
-      const capped = table.currency === 'premium' ? overPremiumCap([players.white, players.black]) : [];
-      if (capped.length) {
-        const names = room.players.filter((t) => capped.includes(room.members.get(t)!.userId!)).map((t) => room.members.get(t)!.name);
-        throw new DuelRoomError(
-          `${names.join(', ')} dépasse${names.length > 1 ? 'nt' : ''} le plafond de ${stakeConfig().premiumWalletCap.toLocaleString('fr-FR')} pièces Premium : retrait nécessaire avant de miser.`,
-        );
       }
       const potId = randomUUID();
       const short = openPot(potId, table.id, table.currency, table.stake, [players.white, players.black]);

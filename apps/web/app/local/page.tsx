@@ -29,6 +29,7 @@ import { BackButton } from '@/components/BackButton';
 import { StakePicker } from '@/components/StakePicker';
 import { getSessionToken, useProfile } from '@/lib/profile';
 import { getSocket, storeRoomToken } from '@/lib/socket';
+import { tr, useLang } from '@/lib/i18n';
 
 /** Verified account of each seat, for a staked game. */
 type Accounts = Partial<Record<Color, string>>;
@@ -48,19 +49,27 @@ const DEFAULT_SETUP: LocalSetup = {
   rules: DEFAULT_RULES,
 };
 
+/** Default seat names are saved in French ("Joueur 2"): shown in the current language. */
+export function seatName(name: string): string {
+  return name.replace(/^Joueur (\d)$/, tr('Joueur $1', 'Player $1'));
+}
+
 function setupError(setup: LocalSetup, wager: string | null, accounts: Accounts, me: string | null): string | null {
   const active = activeSeats(setup);
-  if (active.length < 2) return 'Ajoute au moins 2 joueurs.';
+  if (active.length < 2) return tr('Ajoute au moins 2 joueurs.', 'Add at least 2 players.');
   if (wager) {
-    if (!me) return 'Connecte-toi pour jouer avec mise.';
-    if (active.some((s) => s.kind === 'bot')) return 'Pas d’ordinateur dans une partie avec mise : retire-les.';
+    if (!me) return tr('Connecte-toi pour jouer avec mise.', 'Sign in to play with a stake.');
+    if (active.some((s) => s.kind === 'bot')) return tr('Pas d’ordinateur dans une partie avec mise : retire-les.', 'No computer players in a staked game: remove them.');
     const missing = active.filter((s) => !accounts[s.color]);
-    if (missing.length) return `Vérifie le compte de chaque joueur (${missing.map((s) => COLOR_LABEL[s.color].toLowerCase()).join(', ')}).`;
-    if (!active.some((s) => accounts[s.color] === me)) return 'Tu dois faire partie des joueurs (« C’est moi »).';
+    if (missing.length) {
+      const colors = missing.map((s) => COLOR_LABEL[s.color].toLowerCase()).join(', ');
+      return tr(`Vérifie le compte de chaque joueur (${colors}).`, `Verify each player’s account (${colors}).`);
+    }
+    if (!active.some((s) => accounts[s.color] === me)) return tr('Tu dois faire partie des joueurs (« C’est moi »).', 'You must be one of the players (“It’s me”).');
   }
-  if (setup.rules.teams && active.length !== 4) return 'Le mode équipes nécessite 4 joueurs.';
+  if (setup.rules.teams && active.length !== 4) return tr('Le mode équipes nécessite 4 joueurs.', 'Team mode needs 4 players.');
   if (active.length === 2 && !areDiagonal(active[0].color, active[1].color)) {
-    return 'À deux, les camps doivent être en diagonale : choisis un duel ci-dessus.';
+    return tr('À deux, les camps doivent être en diagonale : choisis un duel ci-dessus.', 'With two players, sides must be diagonal: pick a duel above.');
   }
   return null;
 }
@@ -101,6 +110,7 @@ export default function LocalPage() {
   const { session } = useProfile();
   const me = session?.username ?? null;
   const router = useRouter();
+  const { t } = useLang();
 
   useEffect(() => {
     try {
@@ -135,7 +145,7 @@ export default function LocalPage() {
       .timeout(10_000)
       .emit('local:create', { auth: getSessionToken(), wager: wager!, rules: setup.rules, seats }, (err, res) => {
         setLaunching(false);
-        if (err) return setLaunchError('Impossible de joindre le serveur de jeu.');
+        if (err) return setLaunchError(t('Impossible de joindre le serveur de jeu.', 'Could not reach the game server.'));
         if (!res.ok) return setLaunchError(res.error);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(setup));
         storeRoomToken(res.code, res.token);
@@ -149,7 +159,10 @@ export default function LocalPage() {
       ...setup,
       seats: setup.seats.map((s) => ({
         ...s,
-        name: s.kind === 'bot' ? `Ordi ${BOT_LEVEL_LABEL[s.botLevel].toLowerCase()}` : s.name.trim() || COLOR_LABEL[s.color],
+        name:
+          s.kind === 'bot'
+            ? t(`Ordi ${BOT_LEVEL_LABEL[s.botLevel].toLowerCase()}`, `${BOT_LEVEL_LABEL[s.botLevel]} computer`)
+            : seatName(s.name.trim()) || COLOR_LABEL[s.color],
       })),
     });
     setGameKey(Date.now());
@@ -172,11 +185,11 @@ export default function LocalPage() {
     <div className="min-h-dvh bg-[#0b141a] text-[#e9edef]">
       <header className="sticky top-0 z-10 bg-[#1f2c33] pt-[env(safe-area-inset-top)] shadow-md">
         <div className="mx-auto flex h-16 max-w-lg items-center gap-1 px-1">
-          <BackButton href="/ludo" label="Retour à Ludo" text="Ludo" />
+          <BackButton href="/ludo" label={t('Retour à Ludo', 'Back to Ludo')} text="Ludo" />
           <div className="min-w-0 flex-1 px-1">
-            <h1 className="truncate text-[20px] leading-tight font-medium">Nouvelle partie</h1>
+            <h1 className="truncate text-[20px] leading-tight font-medium">{t('Nouvelle partie', 'New game')}</h1>
             <p className="truncate text-[13px] text-[#8696a0]">
-              Sur cet écran · {count} joueur{count > 1 ? 's' : ''}
+              {t(`Sur cet écran · ${count} joueur${count > 1 ? 's' : ''}`, `On this screen · ${count} player${count > 1 ? 's' : ''}`)}
             </p>
           </div>
         </div>
@@ -186,21 +199,27 @@ export default function LocalPage() {
         <section className="mx-4 mt-4 flex items-center gap-4 rounded-[28px] bg-[#1f2c33] p-4">
           <BoardPreview seats={setup.seats} />
           <div className="min-w-0 flex-1">
-            <p className="text-[16px] font-medium">Un seul téléphone</p>
+            <p className="text-[16px] font-medium">{t('Un seul téléphone', 'One phone')}</p>
             <p className="mt-0.5 text-[13.5px] leading-snug text-[#8696a0]">
               {wager
-                ? 'Chaque joueur confirme son compte avec un code reçu dans son app LuChat, puis vous vous passez l’appareil.'
-                : 'Passez-vous l’appareil à chaque tour. Complète avec des ordinateurs si vous êtes moins de 4.'}
+                ? t(
+                    'Chaque joueur confirme son compte avec un code reçu dans son app LuChat, puis vous vous passez l’appareil.',
+                    'Each player confirms their account with a code sent to their LuChat app, then you pass the device around.',
+                  )
+                : t(
+                    'Passez-vous l’appareil à chaque tour. Complète avec des ordinateurs si vous êtes moins de 4.',
+                    'Pass the device around each turn. Add computer players if there are fewer than 4 of you.',
+                  )}
             </p>
           </div>
         </section>
 
-        <SectionTitle>Type de partie</SectionTitle>
+        <SectionTitle>{t('Type de partie', 'Game type')}</SectionTitle>
         <div className="mx-4 rounded-[24px] bg-[#1f2c33] p-3">
           <StakePicker value={wager} onChange={setWager} players={Math.max(2, count)} freeOnly />
         </div>
 
-        <SectionTitle>Joueurs</SectionTitle>
+        <SectionTitle>{t('Joueurs', 'Players')}</SectionTitle>
         <ul className="divide-y divide-[#222d34]">
           {CORNER_ORDER.map((color) => {
             const seat = setup.seats.find((s) => s.color === color)!;
@@ -221,15 +240,15 @@ export default function LocalPage() {
 
         {count === 2 && <DuelPicker setup={setup} onPick={pickDuel} />}
 
-        <SectionTitle>Paramètres de la partie</SectionTitle>
+        <SectionTitle>{t('Paramètres de la partie', 'Game settings')}</SectionTitle>
         <ListRow
           leading={
             <RowIcon color="#00a884">
               <PresetIcon size={22} />
             </RowIcon>
           }
-          title={`Règles : ${preset?.label ?? 'personnalisées'}`}
-          subtitle={summary.length ? summary.join(' · ') : 'Règles standard'}
+          title={t(`Règles : ${preset?.label ?? 'personnalisées'}`, `Rules: ${preset?.label ?? 'custom'}`)}
+          subtitle={summary.length ? summary.join(' · ') : t('Règles standard', 'Standard rules')}
           trailing={<Icon.ChevronRight className="text-[#8696a0]" />}
           onClick={() => setRulesOpen(true)}
         />
@@ -239,8 +258,11 @@ export default function LocalPage() {
               <Icon.Palette size={22} />
             </RowIcon>
           }
-          title="Apparence"
-          subtitle={`${board.name} · dés ${dice.name.toLowerCase()} · pions ${pawn.name.toLowerCase()}`}
+          title={t('Apparence', 'Appearance')}
+          subtitle={t(
+            `${board.name} · dés ${dice.name.toLowerCase()} · pions ${pawn.name.toLowerCase()}`,
+            `${board.name} · ${dice.name.toLowerCase()} dice · ${pawn.name.toLowerCase()} pawns`,
+          )}
           trailing={<Icon.ChevronRight className="text-[#8696a0]" />}
           onClick={() => setLookOpen(true)}
         />
@@ -261,15 +283,17 @@ export default function LocalPage() {
             className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-[#00a884] text-[16px] font-semibold text-[#0b141a] shadow-lg shadow-black/30 transition active:scale-[0.98] disabled:bg-[#2a3942] disabled:text-[#8696a0] disabled:shadow-none"
           >
             <Icon.Play />
-            {table ? `Miser ${table.stake} ${table.currency === 'premium' ? 'Premium' : 'pièces'} et lancer` : 'Lancer la partie'}
+            {table
+              ? t(`Miser ${table.stake} ${table.currency === 'premium' ? 'Premium' : 'pièces'} et lancer`, `Stake ${table.stake} ${table.currency === 'premium' ? 'Premium' : 'coins'} and start`)
+              : t('Lancer la partie', 'Start the game')}
           </button>
           {table && !error && (
-            <p className="mt-2 text-center text-[12px] text-[#8696a0]">Les mises de tous les joueurs sont prélevées au lancement.</p>
+            <p className="mt-2 text-center text-[12px] text-[#8696a0]">{t('Les mises de tous les joueurs sont prélevées au lancement.', 'Every player’s stake is taken when the game starts.')}</p>
           )}
         </div>
       </div>
 
-      <Sheet open={editing !== null} title={editing ? `Joueur ${COLOR_LABEL[editing.color].toLowerCase()}` : ''} onClose={() => setEditColor(null)}>
+      <Sheet open={editing !== null} title={editing ? t(`Joueur ${COLOR_LABEL[editing.color].toLowerCase()}`, `${COLOR_LABEL[editing.color]} player`) : ''} onClose={() => setEditColor(null)}>
         {editing && (
           <SeatEditor
             seat={editing}
@@ -286,11 +310,11 @@ export default function LocalPage() {
         )}
       </Sheet>
 
-      <Sheet open={rulesOpen} title="Règles et variantes" onClose={() => setRulesOpen(false)}>
+      <Sheet open={rulesOpen} title={t('Règles et variantes', 'Rules and variants')} onClose={() => setRulesOpen(false)}>
         <RulesEditor rules={setup.rules} onChange={setRules} />
       </Sheet>
 
-      <Sheet open={lookOpen} title="Apparence" onClose={() => setLookOpen(false)}>
+      <Sheet open={lookOpen} title={t('Apparence', 'Appearance')} onClose={() => setLookOpen(false)}>
         <AppearancePicker />
       </Sheet>
     </div>
@@ -331,7 +355,7 @@ function SeatAvatar({ seat }: { seat: LocalSeat }) {
   }
   return (
     <span className="grid size-11 place-items-center rounded-full text-[17px] font-semibold text-white" style={{ background: hex }}>
-      {seat.kind === 'bot' ? <Icon.Robot size={22} /> : (seat.name.trim()[0] ?? COLOR_LABEL[seat.color][0]).toUpperCase()}
+      {seat.kind === 'bot' ? <Icon.Robot size={22} /> : (seatName(seat.name.trim())[0] ?? COLOR_LABEL[seat.color][0]).toUpperCase()}
     </span>
   );
 }
@@ -351,6 +375,7 @@ function SeatRow({
   onEdit: () => void;
   onAdd: (kind: 'human' | 'bot') => void;
 }) {
+  const { t } = useLang();
   const colorTag = (
     <span className="inline-flex items-center gap-1.5">
       <span className="size-2 rounded-full" style={{ background: COLOR_HEX[seat.color] }} />
@@ -362,12 +387,12 @@ function SeatRow({
     return (
       <ListRow
         leading={<SeatAvatar seat={seat} />}
-        title={<span className="text-[#8696a0]">Place libre</span>}
+        title={<span className="text-[#8696a0]">{t('Place libre', 'Free seat')}</span>}
         subtitle={colorTag}
         trailing={
           <span className="flex items-center gap-1">
             {!staked && (
-              <IconButton label="Ajouter un ordinateur" onClick={() => onAdd('bot')}>
+              <IconButton label={t('Ajouter un ordinateur', 'Add a computer player')} onClick={() => onAdd('bot')}>
                 <Icon.Robot size={22} />
               </IconButton>
             )}
@@ -376,7 +401,7 @@ function SeatRow({
               onClick={() => onAdd('human')}
               className="h-9 rounded-full bg-[#00a884]/15 px-4 text-[14px] font-medium text-[#00a884] transition active:bg-[#00a884]/25"
             >
-              Ajouter
+              {t('Ajouter', 'Add')}
             </button>
           </span>
         }
@@ -385,14 +410,14 @@ function SeatRow({
   }
 
   const stakeStatus = !staked ? null : seat.kind === 'bot' ? (
-    <span className="text-[#f15c6d]">Pas d’ordinateur avec mise</span>
+    <span className="text-[#f15c6d]">{t('Pas d’ordinateur avec mise', 'No computer with a stake')}</span>
   ) : account ? (
     <span className="inline-flex items-center gap-0.5 text-[#25d366]">
       <Icon.Check size={14} />
-      {account === me ? 'Toi' : 'Compte vérifié'}
+      {account === me ? t('Toi', 'You') : t('Compte vérifié', 'Verified account')}
     </span>
   ) : (
-    <span className="text-[#ffbc38]">Compte à vérifier</span>
+    <span className="text-[#ffbc38]">{t('Compte à vérifier', 'Account to verify')}</span>
   );
 
   return (
@@ -400,16 +425,16 @@ function SeatRow({
       leading={<SeatAvatar seat={seat} />}
       title={
         seat.kind === 'bot'
-          ? `Ordinateur ${BOT_LEVEL_LABEL[seat.botLevel].toLowerCase()}`
+          ? t(`Ordinateur ${BOT_LEVEL_LABEL[seat.botLevel].toLowerCase()}`, `${BOT_LEVEL_LABEL[seat.botLevel]} computer`)
           : staked
-            ? (account ?? 'Toucher pour vérifier')
-            : seat.name.trim() || COLOR_LABEL[seat.color]
+            ? (account ?? t('Toucher pour vérifier', 'Tap to verify'))
+            : seatName(seat.name.trim()) || COLOR_LABEL[seat.color]
       }
       subtitle={
         <span className="inline-flex items-center gap-1.5">
           {colorTag}
           <span>·</span>
-          {stakeStatus ?? (seat.kind === 'bot' ? 'Ordinateur' : 'Joueur')}
+          {stakeStatus ?? (seat.kind === 'bot' ? t('Ordinateur', 'Computer') : t('Joueur', 'Player'))}
         </span>
       }
       trailing={<Icon.ChevronRight className="text-[#8696a0]" />}
@@ -419,9 +444,9 @@ function SeatRow({
 }
 
 const KIND_OPTIONS = [
-  { kind: 'human', label: 'Joueur', icon: Icon.Person },
-  { kind: 'bot', label: 'Ordinateur', icon: Icon.Robot },
-  { kind: 'none', label: 'Personne', icon: Icon.Block },
+  { kind: 'human', label: ['Joueur', 'Player'], icon: Icon.Person },
+  { kind: 'bot', label: ['Ordinateur', 'Computer'], icon: Icon.Robot },
+  { kind: 'none', label: ['Personne', 'Nobody'], icon: Icon.Block },
 ] as const;
 
 function SeatEditor({
@@ -443,6 +468,7 @@ function SeatEditor({
   onChange: (patch: Partial<LocalSeat>) => void;
   onDone: () => void;
 }) {
+  const { t } = useLang();
   const kinds = staked ? KIND_OPTIONS.filter((k) => k.kind !== 'bot') : KIND_OPTIONS;
   return (
     <div className="flex flex-col gap-5">
@@ -458,7 +484,7 @@ function SeatEditor({
             }`}
           >
             <KindIcon size={18} />
-            {label}
+            {t<string>(label[0], label[1])}
           </button>
         ))}
       </div>
@@ -469,9 +495,9 @@ function SeatEditor({
 
       {seat.kind === 'human' && !staked && (
         <label className="block">
-          <span className="mb-1.5 block px-1 text-[13px] font-medium text-[#00a884]">Nom du joueur</span>
+          <span className="mb-1.5 block px-1 text-[13px] font-medium text-[#00a884]">{t('Nom du joueur', 'Player name')}</span>
           <input
-            value={seat.name}
+            value={seatName(seat.name)}
             maxLength={20}
             autoFocus
             onChange={(e) => onChange({ name: e.target.value })}
@@ -512,14 +538,14 @@ function SeatEditor({
         </ul>
       )}
 
-      {seat.kind === 'none' && <p className="text-center text-[14px] text-[#8696a0]">Ce camp restera vide pendant la partie.</p>}
+      {seat.kind === 'none' && <p className="text-center text-[14px] text-[#8696a0]">{t('Ce camp restera vide pendant la partie.', 'This side will stay empty during the game.')}</p>}
 
       <button
         type="button"
         onClick={onDone}
         className="flex h-12 w-full items-center justify-center rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] active:opacity-90"
       >
-        Terminé
+        {t('Terminé', 'Done')}
       </button>
     </div>
   );
@@ -528,12 +554,13 @@ function SeatEditor({
 function DuelPicker({ setup, onPick }: { setup: LocalSetup; onPick: (pair: [Color, Color]) => void }) {
   const active = activeSeats(setup).map((s) => s.color);
   const valid = areDiagonal(active[0], active[1]);
+  const { t } = useLang();
 
   return (
     <>
       <SectionTitle>Duel</SectionTitle>
       <p className={`px-5 pb-2 text-[13.5px] ${valid ? 'text-[#8696a0]' : 'text-[#ffbc38]'}`}>
-        À deux, les camps se font face en diagonale.
+        {t('À deux, les camps se font face en diagonale.', 'With two players, sides face each other diagonally.')}
       </p>
       <ul>
         {DUEL_PAIRS.map((pair) => {
@@ -542,7 +569,7 @@ function DuelPicker({ setup, onPick }: { setup: LocalSetup; onPick: (pair: [Colo
             <li key={pair.join('-')}>
               <ListRow
                 leading={<MiniBoard pair={pair} />}
-                title={`${COLOR_LABEL[pair[0]]} contre ${COLOR_LABEL[pair[1]]}`}
+                title={t(`${COLOR_LABEL[pair[0]]} contre ${COLOR_LABEL[pair[1]]}`, `${COLOR_LABEL[pair[0]]} vs ${COLOR_LABEL[pair[1]]}`)}
                 trailing={
                   <span className={`grid size-5 place-items-center rounded-full border-2 ${selected ? 'border-[#00a884]' : 'border-[#8696a0]'}`}>
                     {selected && <span className="size-2.5 rounded-full bg-[#00a884]" />}
@@ -574,6 +601,7 @@ const BOT_REACTION_DELAY_MS = 700;
 function LocalGame({ setup, onQuit }: { setup: LocalSetup; onQuit: () => void }) {
   const { state, roll, move, abandon, restart, isBotTurn } = useLocalGame(setup);
   const [quitOpen, setQuitOpen] = useState(false);
+  const { t } = useLang();
   const seats = activeSeats(setup).map((s) => ({
     color: s.color,
     name: s.name,
@@ -605,7 +633,7 @@ function LocalGame({ setup, onQuit }: { setup: LocalSetup; onQuit: () => void })
   const requestQuit = () => {
     if (state.phase === 'over' || humansInGame.length === 0) return onQuit();
     if (humansInGame.length === 1) {
-      if (confirm('Quitter la partie ? Tu abandonnes et tu perds.')) onQuit();
+      if (confirm(t('Quitter la partie ? Tu abandonnes et tu perds.', 'Leave the game? You forfeit and lose.'))) onQuit();
       return;
     }
     setQuitOpen(true);
@@ -627,17 +655,19 @@ function LocalGame({ setup, onQuit }: { setup: LocalSetup; onQuit: () => void })
       overlayActions={
         <>
           <button type="button" onClick={restart} className="btn btn-primary">
-            Rejouer
+            {t('Rejouer', 'Play again')}
           </button>
           <button type="button" onClick={onQuit} className="btn btn-ghost">
-            Changer les joueurs
+            {t('Changer les joueurs', 'Change players')}
           </button>
         </>
       }
     />
-    <Sheet open={quitOpen} title="Qui quitte la partie ?" onClose={() => setQuitOpen(false)}>
+    <Sheet open={quitOpen} title={t('Qui quitte la partie ?', 'Who is leaving the game?')} onClose={() => setQuitOpen(false)}>
       <div className="flex flex-col gap-2">
-        <p className="text-sm text-white/70">Le joueur qui quitte perd. Le dernier encore en jeu remporte la partie.</p>
+        <p className="text-sm text-white/70">
+          {t('Le joueur qui quitte perd. Le dernier encore en jeu remporte la partie.', 'The player who leaves loses. The last one still in the game wins.')}
+        </p>
         {humansInGame.map((s) => (
           <button
             key={s.color}
@@ -649,11 +679,11 @@ function LocalGame({ setup, onQuit }: { setup: LocalSetup; onQuit: () => void })
             }}
           >
             <Avatar color={s.color} seat={{ ...s, isBot: false, connected: true }} size={32} />
-            {s.name} abandonne
+            {t(`${s.name} abandonne`, `${s.name} forfeits`)}
           </button>
         ))}
         <button type="button" className="btn mt-2 bg-red-500/20 text-red-200" onClick={onQuit}>
-          Arrêter la partie (sans vainqueur)
+          {t('Arrêter la partie (sans vainqueur)', 'Stop the game (no winner)')}
         </button>
       </div>
     </Sheet>
@@ -683,6 +713,7 @@ function AccountVerifier({
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { t } = useLang();
 
   if (account) {
     return (
@@ -692,10 +723,10 @@ function AccountVerifier({
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[16px] font-semibold">{account}</span>
-          <span className="block text-[13px] text-[#8696a0]">{account === me ? 'C’est toi' : 'Compte vérifié par code'}</span>
+          <span className="block text-[13px] text-[#8696a0]">{account === me ? t('C’est toi', 'It’s you') : t('Compte vérifié par code', 'Account verified by code')}</span>
         </span>
         <button type="button" onClick={() => onAccount(undefined)} className="h-9 rounded-full px-3 text-[14px] font-medium text-[#00a884] active:bg-white/5">
-          Changer
+          {t('Changer', 'Change')}
         </button>
       </div>
     );
@@ -704,14 +735,14 @@ function AccountVerifier({
   const request = (name: string) => {
     const clean = name.trim();
     if (!clean) return;
-    if (taken.some((t) => t.toLowerCase() === clean.toLowerCase())) return setError('Ce joueur a déjà une place.');
+    if (taken.some((n) => n.toLowerCase() === clean.toLowerCase())) return setError(t('Ce joueur a déjà une place.', 'This player already has a seat.'));
     setBusy(true);
     setError(null);
     getSocket()
       .timeout(10_000)
       .emit('local:requestCode', { username: clean, auth: getSessionToken() }, (err, res) => {
         setBusy(false);
-        if (err) return setError('Impossible de joindre le serveur de jeu.');
+        if (err) return setError(t('Impossible de joindre le serveur de jeu.', 'Could not reach the game server.'));
         if (!res.ok) return setError(res.error);
         setSentTo({ username: res.username, online: res.online });
         setCode('');
@@ -726,7 +757,7 @@ function AccountVerifier({
       .timeout(10_000)
       .emit('local:verifyCode', { username: sentTo.username, code }, (err, res) => {
         setBusy(false);
-        if (err) return setError('Impossible de joindre le serveur de jeu.');
+        if (err) return setError(t('Impossible de joindre le serveur de jeu.', 'Could not reach the game server.'));
         if (!res.ok) return setError(res.error);
         onAccount(res.username);
         onDone();
@@ -745,14 +776,17 @@ function AccountVerifier({
           className="flex h-12 items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] active:opacity-90"
         >
           <Icon.Person size={20} />
-          C’est moi ({me})
+          {t(`C’est moi (${me})`, `It’s me (${me})`)}
         </button>
       )}
 
       {!sentTo ? (
         <>
           <p className="text-[13.5px] leading-snug text-[#8696a0]">
-            Sinon, entre le pseudo du joueur : il recevra un code à 6 chiffres dans son app LuChat, sur son propre téléphone.
+            {t(
+              'Sinon, entre le pseudo du joueur : il recevra un code à 6 chiffres dans son app LuChat, sur son propre téléphone.',
+              'Otherwise, enter the player’s username: they will get a 6-digit code in their LuChat app, on their own phone.',
+            )}
           </p>
           <div className="flex gap-2">
             <input
@@ -763,7 +797,7 @@ function AccountVerifier({
               autoComplete="off"
               spellCheck={false}
               maxLength={16}
-              placeholder="Pseudo LuChat du joueur"
+              placeholder={t('Pseudo LuChat du joueur', 'Player’s LuChat username')}
               enterKeyHint="send"
               className="h-12 min-w-0 flex-1 rounded-2xl border-b-2 border-[#00a884] bg-[#2a3942] px-4 text-[16px] text-[#e9edef] outline-none placeholder:text-[#8696a0]"
             />
@@ -773,17 +807,20 @@ function AccountVerifier({
               onClick={() => request(username)}
               className="h-12 shrink-0 rounded-full bg-[#00a884]/15 px-4 text-[14px] font-semibold text-[#00a884] disabled:opacity-40"
             >
-              {busy ? 'Envoi…' : 'Envoyer le code'}
+              {busy ? t('Envoi…', 'Sending…') : t('Envoyer le code', 'Send the code')}
             </button>
           </div>
         </>
       ) : (
         <>
           <p className="text-[13.5px] leading-snug text-[#d1d7db]">
-            Code envoyé à <span className="font-semibold">{sentTo.username}</span>.{' '}
+            {t('Code envoyé à', 'Code sent to')} <span className="font-semibold">{sentTo.username}</span>.{' '}
             {sentTo.online
-              ? 'Il s’affiche dans son app LuChat.'
-              : 'Son app n’est pas ouverte : il a reçu une notification. Sinon, demande-lui d’ouvrir LuChat puis renvoie le code.'}
+              ? t('Il s’affiche dans son app LuChat.', 'It shows in their LuChat app.')
+              : t(
+                  'Son app n’est pas ouverte : il a reçu une notification. Sinon, demande-lui d’ouvrir LuChat puis renvoie le code.',
+                  'Their app isn’t open: they got a notification. Otherwise, ask them to open LuChat, then resend the code.',
+                )}
           </p>
           <input
             value={code}
@@ -793,7 +830,7 @@ function AccountVerifier({
             autoComplete="one-time-code"
             autoFocus
             placeholder="______"
-            aria-label="Code à 6 chiffres"
+            aria-label={t('Code à 6 chiffres', '6-digit code')}
             className="h-14 w-full rounded-2xl border-b-2 border-[#00a884] bg-[#2a3942] text-center font-mono text-[28px] tracking-[0.5em] text-[#e9edef] outline-none placeholder:text-[#8696a0]/50"
           />
           <div className="flex gap-2">
@@ -803,7 +840,7 @@ function AccountVerifier({
               disabled={busy}
               className="h-12 flex-1 rounded-full border border-[#2a3942] text-[14px] font-medium text-[#e9edef] active:bg-white/5 disabled:opacity-40"
             >
-              Renvoyer
+              {t('Renvoyer', 'Resend')}
             </button>
             <button
               type="button"
@@ -811,11 +848,11 @@ function AccountVerifier({
               disabled={busy || code.length !== 6}
               className="h-12 flex-1 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] disabled:opacity-40"
             >
-              {busy ? 'Vérification…' : 'Valider'}
+              {busy ? t('Vérification…', 'Checking…') : t('Valider', 'Confirm')}
             </button>
           </div>
           <button type="button" onClick={() => setSentTo(null)} className="text-[13px] text-[#8696a0]">
-            Changer de joueur
+            {t('Changer de joueur', 'Change player')}
           </button>
         </>
       )}

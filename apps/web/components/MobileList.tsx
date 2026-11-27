@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import type { BotLevel, Rules } from '@ludo/engine';
 import { RULES_PRESETS, matchPreset } from '@/lib/labels';
 import { Icon } from './Icons';
+import { tr } from '@/lib/i18n';
 import { RulesForm } from './RulesForm';
 
 export const PRESET_ICON: Record<string, (p: { size?: number }) => ReactNode> = {
@@ -14,9 +15,15 @@ export const PRESET_ICON: Record<string, (p: { size?: number }) => ReactNode> = 
 };
 
 export const BOT_LEVEL_HINT: Record<BotLevel, string> = {
-  easy: 'Joue au hasard, idéal pour débuter',
-  medium: 'Prudent, capture quand il peut',
-  hard: 'Calcule ses coups, redoutable',
+  get easy() {
+    return tr('Joue au hasard, idéal pour débuter', 'Plays at random, great for beginners');
+  },
+  get medium() {
+    return tr('Prudent, capture quand il peut', 'Careful, captures when it can');
+  },
+  get hard() {
+    return tr('Calcule ses coups, redoutable', 'Thinks ahead, formidable');
+  },
 };
 
 export function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
@@ -104,7 +111,7 @@ export function RulesEditor({ rules, onChange }: { rules: Rules; onChange?: (rul
           })}
         </div>
       ) : (
-        <p className="mb-3 text-sm text-white/60">Seul l’hôte peut modifier les règles.</p>
+        <p className="mb-3 text-sm text-white/60">{tr('Seul l’hôte peut modifier les règles.', 'Only the host can change the rules.')}</p>
       )}
       <RulesForm rules={rules} onChange={onChange} disabled={!onChange} />
     </>

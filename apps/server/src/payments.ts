@@ -211,6 +211,7 @@ export function paymentsView(userId: number) {
     limits: { deposit: providerSettings.wave.deposit, withdrawal: providerSettings.wave.withdrawal },
     walletCap: stakeConfig().premiumWalletCap,
     depositRoom: depositRoom(userId),
+    bonus: db.premiumBonusOf(userId),
     phone: db.wavePhoneOf(userId),
     payments: db.paymentsOf(userId, 10).map((p) => ({
       reference: p.reference,
@@ -241,7 +242,7 @@ export async function startDeposit(userId: number, rawAmount: unknown, rawPhone:
     throw new PaymentError(
       400,
       room < min
-        ? `Ton portefeuille Premium est plein (plafond de ${cap} pièces, dépôts en attente compris). Joue ou retire avant de recharger.`
+        ? `Ton portefeuille Premium est plein (plafond de ${cap} pièces, dépôts en attente compris). Retire une partie de ton solde avant de recharger.`
         : `Tu peux recharger au plus ${room.toLocaleString('fr-FR')} F : le portefeuille Premium est plafonné à ${cap} pièces.`,
     );
   }

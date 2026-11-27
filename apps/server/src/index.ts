@@ -11,11 +11,11 @@ import {
   type ClientToServerEvents,
   type ReactionMessage,
   type ServerToClientEvents,
+  type WalletChange,
   LOCAL_CODE_TTL_MS,
   COLORS,
   ADULT_REQUIRED,
   PREMIUM_CLOSED,
-  overWalletCap,
   stakeConfig,
   stakeTable,
   type GameId,
@@ -43,10 +43,10 @@ import {
   listFriendIds,
   notAdultConfirmed,
   onCoinsMoved,
-  overPremiumCap,
   openPot,
   refundOpenPots,
 } from './db';
+import { setNotificationTransport, notify } from './notify';
 import { sendPush } from './push';
 import { loadPaymentSettings, settleStaleDeposits } from './payments';
 import { Matchmaker } from './matchmaking';
@@ -199,55 +199,78 @@ setPush((userId, event, args, exceptSocket) => {
   (target.emit as (event: string, ...args: unknown[]) => boolean)(event, ...args);
 }, (userId) => openConnections.has(userId));
 
+setNotificationTransport(
+  (userId, notification) => {
+    if (userId === null) io.emit('notification:new', notification);
+    else io.to(userRoom(userId)).emit('notification:new', notification);
+  },
+  (userId) => openConnections.has(userId),
+);
+
 const CURRENCY_LABEL = { free: 'Free', premium: 'Premium' } as const;
 
 /** Why a stake id was refused: Premium switched off, or simply unknown. */
 const stakeError = (id: unknown, unknown: string) =>
   typeof id === 'string' && id.startsWith('premium-') && !stakeConfig().premiumEnabled ? PREMIUM_CLOSED : unknown;
 
+/** What the bell says for each kind of coin move; moves not listed here are not kept. */
+function walletNotice(reason: string, amount: string): { kind: 'wallet' | 'game' | 'referral'; title: string; body: string; url: string } | null {
+  switch (reason) {
+    case 'prize':
+      return { kind: 'game', title: `Tu as gagné ${amount} !`, body: 'La cagnotte de la partie a été créditée sur ton compte.', url: '/portefeuille' };
+    case 'refund':
+      return { kind: 'game', title: `${amount} remboursés`, body: 'La partie n’a pas pu se terminer : ta mise t’a été rendue.', url: '/portefeuille' };
+    case 'forfeit':
+      return { kind: 'game', title: `Mise de ${amount} perdue`, body: 'La partie a été quittée avant la fin sur le téléphone où elle se jouait.', url: '/portefeuille' };
+    case 'deposit':
+      return { kind: 'wallet', title: `${amount} crédités`, body: 'Ton dépôt Wave est arrivé sur ton compte.', url: '/portefeuille' };
+    case 'referral_deposit':
+      return {
+        kind: 'referral',
+        title: `Bonus parrainage : +${amount}`,
+        body: 'Un ami que tu as invité a fait son premier dépôt. Mise ce bonus en parties pour pouvoir le retirer.',
+        url: '/portefeuille',
+      };
+    case 'referral_welcome':
+      return {
+        kind: 'referral',
+        title: `Bonus de bienvenue : +${amount}`,
+        body: 'Merci pour ton premier dépôt ! Mise ce bonus en parties pour pouvoir le retirer.',
+        url: '/portefeuille',
+      };
+    default:
+      return null;
+  }
+}
+
 // Players staking on someone else's phone see each debit, prize and refund on their own app.
 onCoinsMoved(({ userId, currency, delta, reason }) => {
-  if (reason !== 'stake' && reason !== 'prize' && reason !== 'refund' && reason !== 'forfeit' && reason !== 'deposit') return;
-  io.to(userRoom(userId)).emit('wallet:changed', { currency, delta, reason, balance: getWallet(userId) });
-  if (openConnections.has(userId)) return;
+  if (reason !== 'stake' && !walletNotice(reason, '')) return;
+  io.to(userRoom(userId)).emit('wallet:changed', { currency, delta, reason: reason as WalletChange['reason'], balance: getWallet(userId) });
   const amount = `${Math.abs(delta)} ${CURRENCY_LABEL[currency]}`;
-  void sendPush(userId, {
-    title:
-      reason === 'stake'
-        ? `Mise de ${amount} prélevée`
-        : reason === 'prize'
-          ? `Tu as gagné ${amount} !`
-          : reason === 'forfeit'
-            ? `Mise de ${amount} perdue`
-            : reason === 'deposit'
-              ? `${amount} crédités`
-              : `${amount} remboursés`,
-    body:
-      reason === 'stake'
-        ? 'Ta mise est dans la cagnotte de la partie qui commence.'
-        : reason === 'prize'
-          ? 'La cagnotte de la partie a été créditée sur ton compte.'
-          : reason === 'forfeit'
-            ? 'La partie a été quittée avant la fin sur le téléphone où elle se jouait.'
-            : reason === 'deposit'
-              ? 'Ton dépôt Wave est arrivé sur ton compte.'
-              : 'La partie n’a pas pu se terminer : ta mise t’a été rendue.',
-    url: reason === 'deposit' ? '/portefeuille' : '/compte',
-    tag: 'wallet',
-  });
+  const notice = walletNotice(reason, amount);
+  if (notice) {
+    notify(userId, notice, { tag: 'wallet' });
+  } else if (!openConnections.has(userId)) {
+    // A stake is the player's own doing: a phone notification only, when the game runs on another device.
+    void sendPush(userId, { title: `Mise de ${amount} prélevée`, body: 'Ta mise est dans la cagnotte de la partie qui commence.', url: '/compte', tag: 'wallet' });
+  }
 });
 
 /** A withdrawal was paid on Wave or refused (and refunded) by an admin. */
 function notifyWithdrawal(userId: number, amount: number, paid: boolean, note: string) {
   const reason = paid ? 'withdrawal_paid' : 'withdrawal_refund';
   io.to(userRoom(userId)).emit('wallet:changed', { currency: 'premium', delta: paid ? 0 : amount, reason, balance: getWallet(userId), note, amount });
-  if (openConnections.has(userId)) return;
-  void sendPush(userId, {
-    title: paid ? `Retrait de ${amount} F envoyé` : `Retrait de ${amount} F refusé`,
-    body: paid ? 'L’argent a été envoyé sur ton compte Wave.' : `${note} Tes pièces Premium t’ont été rendues.`,
-    url: '/portefeuille',
-    tag: 'wallet',
-  });
+  notify(
+    userId,
+    {
+      kind: 'wallet',
+      title: paid ? `Retrait de ${amount} F envoyé` : `Retrait de ${amount} F refusé`,
+      body: paid ? 'L’argent a été envoyé sur ton compte Wave.' : `${note} Tes pièces Premium t’ont été rendues.`,
+      url: '/portefeuille',
+    },
+    { tag: 'wallet' },
+  );
 }
 
 const BOT_LABEL = { easy: 'Ordi facile', medium: 'Ordi moyen', hard: 'Ordi difficile' } as const;
@@ -378,14 +401,17 @@ registerAdminRoutes({
   notifyWithdrawal,
   notifyAdjustment: (userId, currency, delta, note) => {
     io.to(userRoom(userId)).emit('wallet:changed', { currency, delta, reason: 'admin', balance: getWallet(userId), note });
-    if (openConnections.has(userId)) return;
     const amount = `${Math.abs(delta)} ${CURRENCY_LABEL[currency]}`;
-    void sendPush(userId, {
-      title: delta > 0 ? `${amount} crédités sur ton compte` : `${amount} retirés de ton compte`,
-      body: note,
-      url: '/compte',
-      tag: 'wallet',
-    });
+    notify(
+      userId,
+      {
+        kind: 'wallet',
+        title: delta > 0 ? `${amount} crédités sur ton compte` : `${amount} retirés de ton compte`,
+        body: note,
+        url: '/portefeuille',
+      },
+      { tag: 'wallet' },
+    );
   },
 });
 
@@ -733,9 +759,6 @@ io.on('connection', (socket: LudoSocket) => {
     if (table === undefined) return ack?.({ ok: false, error: stakeError(payload.table, 'Table inconnue.') });
     if (table && !userId) return ack?.({ ok: false, error: 'Connecte-toi pour jouer avec une mise.' });
     if (table?.currency === 'premium' && notAdultConfirmed([userId!]).length) return ack?.({ ok: false, error: ADULT_REQUIRED });
-    if (table?.currency === 'premium' && overPremiumCap([userId!]).length) {
-      return ack?.({ ok: false, error: overWalletCap(stakeConfig().premiumWalletCap) });
-    }
     if (table && userId && getWallet(userId)[table.currency] < table.stake) {
       return ack?.({ ok: false, error: 'Solde insuffisant pour cette mise.' });
     }
@@ -961,9 +984,6 @@ io.on('connection', (socket: LudoSocket) => {
     if (table === undefined) return ack?.({ ok: false, error: stakeError(payload.table, 'Table inconnue.') });
     if (table && !userId) return ack?.({ ok: false, error: 'Connecte-toi pour jouer avec une mise.' });
     if (table?.currency === 'premium' && notAdultConfirmed([userId!]).length) return ack?.({ ok: false, error: ADULT_REQUIRED });
-    if (table?.currency === 'premium' && overPremiumCap([userId!]).length) {
-      return ack?.({ ok: false, error: overWalletCap(stakeConfig().premiumWalletCap) });
-    }
     if (table && userId && getWallet(userId)[table.currency] < table.stake) {
       return ack?.({ ok: false, error: 'Solde insuffisant pour cette mise.' });
     }

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useProfile } from '@/lib/profile';
 import { Icon } from './Icons';
+import { useLang } from '@/lib/i18n';
 
 export function CoinIcon({ size = 18 }: { size?: number }) {
   return (
@@ -61,11 +62,12 @@ export function CoinAmount({
 export function CoinBadge() {
   const { profile, ready } = useProfile();
   const coins = ready ? profile.coins : 0;
+  const { t } = useLang();
   return (
     <Link
       href="/boutique"
       className="inline-flex items-center gap-2 rounded-full bg-white/10 py-1 pr-3 pl-1 text-sm transition active:scale-95"
-      aria-label={`${coins} pièces, ouvrir la boutique`}
+      aria-label={t(`${coins} pièces, ouvrir la boutique`, `${coins} coins, open the shop`)}
     >
       <CoinAmount value={coins} size={24} />
       <Icon.Cart size={18} className="text-white/50" />
