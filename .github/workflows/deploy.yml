@@ -1,0 +1,58 @@
+# Deploys luchat.win on every push to master (and on demand from the Actions tab).
+# Secrets (Settings > Secrets and variables > Actions):
+#   DEPLOY_SSH_KEY      private key whose public half is locked to deploy/deploy.sh on the server
+#   DEPLOY_KNOWN_HOSTS  the server's SSH host key line(s), so the runner never trusts an impostor
+# Variable: DEPLOY_HOST (e.g. 78.24.248.142)
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Deploy on the server
+        # The server ignores the command sent and always runs deploy/deploy.sh.
+        run: ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 root@${{ vars.DEPLOY_HOST }} deploy
+
+      - name: Check the public site
+        run: |
+          for url in https://luchat.win https://api.luchat.win https://admin.luchat.win; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url")
+            echo "$url -> $code"
+            [ "$code" = 200 ] || exit 1
+          done
