@@ -83,7 +83,7 @@ export interface AdminRuntime {
 
 const loginLimiter = new RateLimiter(8, 15 * 60_000);
 
-function requireAdmin(req: IncomingMessage): db.Admin {
+export function requireAdmin(req: IncomingMessage): db.Admin {
   const token = bearer(req);
   const id = token ? db.adminSessionId(token) : null;
   const admin = id ? db.getAdmin(id) : null;

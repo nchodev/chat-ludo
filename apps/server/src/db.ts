@@ -2421,3 +2421,231 @@ export function messageContext(messageId: number, around = 15): StoredMessage[] 
   const rows = [...before.reverse(), ...after];
   return withDetails(rows.map(rowToMessage), rows);
 }
+
+/* ------------------------------------------------------------------ */
+/* Customer support: one conversation per player with the admins       */
+/* ------------------------------------------------------------------ */
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS support_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    -- The admin who answered; NULL when the player wrote it.
+    admin_id INTEGER REFERENCES admins (id) ON DELETE SET NULL,
+    from_staff INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL,
+    body TEXT NOT NULL DEFAULT '',
+    width INTEGER,
+    height INTEGER,
+    duration_ms INTEGER,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS support_messages_user ON support_messages (user_id, id);
+  CREATE TABLE IF NOT EXISTS support_media (
+    message_id INTEGER PRIMARY KEY REFERENCES support_messages (id) ON DELETE CASCADE,
+    mime TEXT NOT NULL,
+    data BLOB NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS support_threads (
+    user_id INTEGER PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'open',
+    last_at INTEGER NOT NULL,
+    -- Newest message each side has read.
+    user_read_upto INTEGER NOT NULL DEFAULT 0,
+    admin_read_upto INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS support_threads_last ON support_threads (status, last_at DESC);
+`);
+
+export type SupportKind = 'text' | 'image' | 'voice';
+
+export interface SupportMessage {
+  id: number;
+  userId: number;
+  adminId: number | null;
+  /** Email of the admin who answered, for the admin panel only. */
+  adminEmail: string | null;
+  fromStaff: boolean;
+  kind: SupportKind;
+  body: string;
+  width: number | null;
+  height: number | null;
+  durationMs: number | null;
+  createdAt: number;
+}
+
+interface SupportRow {
+  id: number;
+  user_id: number;
+  admin_id: number | null;
+  admin_email: string | null;
+  from_staff: number;
+  kind: SupportKind;
+  body: string;
+  width: number | null;
+  height: number | null;
+  duration_ms: number | null;
+  created_at: number;
+}
+
+const SUPPORT_SELECT = `SELECT s.id, s.user_id, s.admin_id, a.email AS admin_email, s.from_staff, s.kind, s.body, s.width, s.height,
+  s.duration_ms, s.created_at FROM support_messages s LEFT JOIN admins a ON a.id = s.admin_id`;
+
+function rowToSupport(r: SupportRow): SupportMessage {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    adminId: r.admin_id,
+    adminEmail: r.admin_email,
+    fromStaff: !!r.from_staff,
+    kind: r.kind,
+    body: r.body,
+    width: r.width,
+    height: r.height,
+    durationMs: r.duration_ms,
+    createdAt: r.created_at,
+  };
+}
+
+export function addSupportMessage(
+  userId: number,
+  adminId: number | null,
+  m: { kind: SupportKind; body: string; width?: number; height?: number; durationMs?: number },
+  media?: { mime: string; data: Uint8Array },
+): SupportMessage {
+  const now = Date.now();
+  const fromStaff = adminId !== null;
+  db.exec('BEGIN');
+  try {
+    const id = Number(
+      db
+        .prepare(
+          'INSERT INTO support_messages (user_id, admin_id, from_staff, kind, body, width, height, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(userId, adminId, fromStaff ? 1 : 0, m.kind, m.body, m.width ?? null, m.height ?? null, m.durationMs ?? null, now).lastInsertRowid,
+    );
+    if (media) db.prepare('INSERT INTO support_media (message_id, mime, data) VALUES (?, ?, ?)').run(id, media.mime, media.data);
+    // A new message from the player reopens a closed conversation; the writer has read everything before it.
+    db.prepare(
+      `INSERT INTO support_threads (user_id, status, last_at, user_read_upto, admin_read_upto) VALUES (?, 'open', ?, ?, ?)
+       ON CONFLICT (user_id) DO UPDATE SET last_at = excluded.last_at,
+         status = CASE WHEN ? THEN status ELSE 'open' END,
+         user_read_upto = MAX(user_read_upto, excluded.user_read_upto),
+         admin_read_upto = MAX(admin_read_upto, excluded.admin_read_upto)`,
+    ).run(userId, now, fromStaff ? 0 : id, fromStaff ? id : 0, fromStaff ? 1 : 0);
+    db.exec('COMMIT');
+    return getSupportMessage(id)!;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+export function getSupportMessage(id: number): SupportMessage | null {
+  const row = db.prepare(`${SUPPORT_SELECT} WHERE s.id = ?`).get(id) as SupportRow | undefined;
+  return row ? rowToSupport(row) : null;
+}
+
+/** The newest `limit` messages of a player's conversation (before `beforeId` if given), oldest first. */
+export function supportMessages(userId: number, beforeId: number | null, limit: number): SupportMessage[] {
+  const rows = db
+    .prepare(`${SUPPORT_SELECT} WHERE s.user_id = ? AND s.id < ? ORDER BY s.id DESC LIMIT ?`)
+    .all(userId, beforeId ?? Number.MAX_SAFE_INTEGER, limit) as unknown as SupportRow[];
+  return rows.reverse().map(rowToSupport);
+}
+
+export function getSupportMedia(messageId: number): { mime: string; data: Uint8Array } | null {
+  return (db.prepare('SELECT mime, data FROM support_media WHERE message_id = ?').get(messageId) as
+    | { mime: string; data: Uint8Array }
+    | undefined) ?? null;
+}
+
+export function storeSupportMedia(messageId: number, mime: string, data: Uint8Array) {
+  db.prepare('INSERT OR REPLACE INTO support_media (message_id, mime, data) VALUES (?, ?, ?)').run(messageId, mime, data);
+}
+
+/** Marks the conversation read by the player or by the support team. */
+export function markSupportRead(userId: number, side: 'user' | 'admin') {
+  const column = side === 'user' ? 'user_read_upto' : 'admin_read_upto';
+  db.prepare(
+    `UPDATE support_threads SET ${column} = MAX(${column}, COALESCE((SELECT MAX(id) FROM support_messages WHERE user_id = ?), 0)) WHERE user_id = ?`,
+  ).run(userId, userId);
+}
+
+/** Replies from support the player has not read yet. */
+export function supportUnreadForUser(userId: number): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM support_messages s JOIN support_threads t ON t.user_id = s.user_id
+       WHERE s.user_id = ? AND s.from_staff = 1 AND s.id > t.user_read_upto`,
+    )
+    .get(userId) as { n: number };
+  return row.n;
+}
+
+export type SupportStatus = 'open' | 'closed';
+
+export interface SupportThread {
+  userId: number;
+  username: string;
+  fullName: string | null;
+  status: SupportStatus;
+  lastAt: number;
+  /** Messages from the player the admins have not read yet. */
+  unread: number;
+  last: { kind: SupportKind; body: string; fromStaff: boolean } | null;
+}
+
+/** Conversations for the admin panel, most recent first; `search` matches the username. */
+export function listSupportThreads(status: SupportStatus | 'all', search: string, limit = 100, userId?: number): SupportThread[] {
+  const rows = db
+    .prepare(
+      `SELECT t.user_id, u.username, u.full_name, t.status, t.last_at,
+         (SELECT COUNT(*) FROM support_messages s WHERE s.user_id = t.user_id AND s.from_staff = 0 AND s.id > t.admin_read_upto) AS unread,
+         l.kind AS last_kind, l.body AS last_body, l.from_staff AS last_staff
+       FROM support_threads t
+       JOIN users u ON u.id = t.user_id
+       LEFT JOIN support_messages l ON l.id = (SELECT MAX(id) FROM support_messages WHERE user_id = t.user_id)
+       WHERE (? = 'all' OR t.status = ?) AND (? = '' OR u.username LIKE ? ESCAPE '\\') AND (? IS NULL OR t.user_id = ?)
+       ORDER BY unread > 0 DESC, t.last_at DESC LIMIT ?`,
+    )
+    .all(status, status, search, `%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`, userId ?? null, userId ?? null, limit) as {
+    user_id: number;
+    username: string;
+    full_name: string | null;
+    status: SupportStatus;
+    last_at: number;
+    unread: number;
+    last_kind: SupportKind | null;
+    last_body: string | null;
+    last_staff: number | null;
+  }[];
+  return rows.map((r) => ({
+    userId: r.user_id,
+    username: r.username,
+    fullName: r.full_name,
+    status: r.status,
+    lastAt: r.last_at,
+    unread: r.unread,
+    last: r.last_kind ? { kind: r.last_kind, body: r.last_body ?? '', fromStaff: !!r.last_staff } : null,
+  }));
+}
+
+export function supportThread(userId: number): SupportThread | null {
+  return listSupportThreads('all', '', 1, userId)[0] ?? null;
+}
+
+/** Open conversations with messages from players not read yet, for the admin menu badge. */
+export function supportUnreadThreads(): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM support_threads t WHERE t.status = 'open'
+       AND EXISTS (SELECT 1 FROM support_messages s WHERE s.user_id = t.user_id AND s.from_staff = 0 AND s.id > t.admin_read_upto)`,
+    )
+    .get() as { n: number };
+  return row.n;
+}
+
+export function setSupportStatus(userId: number, status: SupportStatus): boolean {
+  return Number(db.prepare('UPDATE support_threads SET status = ? WHERE user_id = ?').run(status, userId).changes) > 0;
+}

@@ -56,6 +56,10 @@ export default function PlayerPage() {
           )}
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link href={`/assistance?user=${player.id}`} className="btn btn-tonal">
+            <Icon.Support size={18} />
+            Écrire au joueur
+          </Link>
           <button type="button" className="btn btn-tonal" onClick={() => setDialog('coins')}>
             <Icon.Wallet size={18} />
             Ajuster les pièces

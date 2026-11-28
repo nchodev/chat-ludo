@@ -35,6 +35,7 @@ import {
   conversationPeers, handleApi, readConversation, setPush, userIdForToken, usernameOf } from './api';
 import { gameClosedReason, loadGameSettings } from './games';
 import { loadStakeSettings, registerAdminRoutes, type AdminRoom } from './admin';
+import { registerSupportRoutes } from './support';
 import {
   deleteExpiredSessions,
   findUserByUsername,
@@ -342,6 +343,7 @@ function adminDraughtsRoom(room: DuelRoom): AdminRoom {
   };
 }
 
+registerSupportRoutes();
 registerAdminRoutes({
   online: () => ({
     players: openConnections.size,

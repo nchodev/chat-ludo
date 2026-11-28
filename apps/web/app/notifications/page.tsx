@@ -18,6 +18,7 @@ const KIND_STYLE: Record<NotificationKind, { icon: ComponentType<{ size?: number
   referral: { icon: Icon.Gift, tone: 'bg-[#00a884]/15 text-[#00a884]' },
   friend: { icon: Icon.PersonAdd, tone: 'bg-sky-500/15 text-sky-300' },
   announcement: { icon: Icon.Bell, tone: 'bg-[#f15c6d]/15 text-[#f15c6d]' },
+  support: { icon: Icon.Chat, tone: 'bg-[#53bdeb]/15 text-[#53bdeb]' },
 };
 
 export default function NotificationsPage() {

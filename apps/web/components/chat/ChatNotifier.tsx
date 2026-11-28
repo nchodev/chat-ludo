@@ -2,12 +2,13 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import type { AppNotification, ChatMessageView, WalletChange } from '@ludo/engine';
+import type { AppNotification, ChatMessageView, SupportMessageView, WalletChange } from '@ludo/engine';
 import { getViewingChat, requestOpenChat } from '@/lib/chat';
 import { clearNotifications, receiveNotification, refreshUnread } from '@/lib/notifications';
 import { getSessionToken, refreshProfile, useProfile } from '@/lib/profile';
 import { showLocalNotification } from '@/lib/push';
 import { getSocket } from '@/lib/socket';
+import { clearSupport, receiveSupport, refreshSupportUnread } from '@/lib/support';
 import { CoinIcon, GemIcon } from '../Coins';
 import { Icon } from '../Icons';
 import { Avatar } from './Avatar';
@@ -103,14 +104,20 @@ export function ChatNotifier() {
         void showLocalNotification(notification.title, notification.body, `notif-${notification.id}`, notification.url ?? '/notifications');
       }
     };
-    const onReconnect = () => void refreshUnread();
+    const onSupport = (message: SupportMessageView) => receiveSupport(message);
+    const onReconnect = () => {
+      void refreshUnread();
+      void refreshSupportUnread();
+    };
     socket.on('connect', auth);
     socket.on('chat:message', onMessage);
     socket.on('local:code', onLocalCode);
     socket.on('wallet:changed', onWallet);
     socket.on('notification:new', onNotification);
     socket.on('connect', onReconnect);
+    socket.on('support:message', onSupport);
     void refreshUnread();
+    void refreshSupportUnread();
     if (socket.connected) auth();
     else socket.connect();
     return () => {
@@ -120,7 +127,9 @@ export function ChatNotifier() {
       socket.off('wallet:changed', onWallet);
       socket.off('notification:new', onNotification);
       socket.off('connect', onReconnect);
+      socket.off('support:message', onSupport);
       clearNotifications();
+      clearSupport();
       socket.emit('chat:logout');
     };
   }, [signedIn]);

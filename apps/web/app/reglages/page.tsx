@@ -16,6 +16,7 @@ import { useLang } from '@/lib/i18n';
 import { getSessionToken, logout, useProfile } from '@/lib/profile';
 import { disablePush, enablePush, pushStatus, type PushStatus } from '@/lib/push';
 import { isMuted, onMutedChange, setMuted } from '@/lib/sound';
+import { useSupport } from '@/lib/support';
 
 /** On/off switch, same look as the fingerprint lock. */
 function Switch({ on, label, disabled, onChange }: { on: boolean; label: string; disabled?: boolean; onChange: () => void }) {
@@ -125,6 +126,7 @@ export default function SettingsPage() {
   const { session, fullName } = useProfile();
   const { board } = useAppearance();
   const [sheet, setSheet] = useState<'appearance' | 'color' | null>(null);
+  const { unread: supportUnread } = useSupport();
 
   const signOut = async () => {
     if (!confirm(t('Se déconnecter de LuChat sur cet appareil ?', 'Sign out of LuChat on this device?'))) return;
@@ -210,6 +212,26 @@ export default function SettingsPage() {
 
         <SectionTitle>{t('Aide', 'Help')}</SectionTitle>
         <Group>
+          <Link href="/assistance" className="block">
+            <ListRow
+              leading={
+                <RowIcon color="#53bdeb">
+                  <Icon.Chat size={22} />
+                </RowIcon>
+              }
+              title={t('Contacter l’assistance', 'Contact support')}
+              subtitle={t('Une question, un souci de paiement ? Écris-nous', 'A question or a payment issue? Write to us')}
+              trailing={
+                supportUnread > 0 ? (
+                  <span className="grid h-6 min-w-6 place-items-center rounded-full bg-[#00a884] px-1.5 text-[12.5px] font-bold text-[#0b141a]">
+                    {supportUnread}
+                  </span>
+                ) : (
+                  chevron
+                )
+              }
+            />
+          </Link>
           <Link href="/tutoriel" className="block">
             <ListRow
               leading={

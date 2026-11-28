@@ -304,6 +304,10 @@ export default function WalletPage() {
             {error && <p className="mx-4 text-center text-[13px] text-[#f15c6d]">{error}</p>}
           </>
         )}
+        <Link href="/assistance" className="mx-4 flex items-center justify-center gap-2 rounded-full py-3 text-[14px] font-semibold text-[#00a884] active:bg-white/5">
+          <Icon.Chat size={18} />
+          Un souci avec un dépôt ou un retrait ? Contacter l’assistance
+        </Link>
       </main>
     </div>
   );

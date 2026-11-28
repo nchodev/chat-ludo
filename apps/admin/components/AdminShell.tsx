@@ -22,6 +22,7 @@ const NAV = [
   { href: '/paiements', label: 'Paiements Wave', icon: Icon.Coin },
   { href: '/parrainage', label: 'Parrainage', icon: Icon.Gift },
   { href: '/annonces', label: 'Annonces', icon: Icon.Bell },
+  { href: '/assistance', label: 'Assistance', icon: Icon.Support },
   { href: '/signalements', label: 'Signalements', icon: Icon.Flag },
   { href: '/jeux', label: 'Jeux', icon: Icon.Casino },
   { href: '/reglages', label: 'Réglages des mises', icon: Icon.Tune },
@@ -40,6 +41,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [openReports, setOpenReports] = useState(0);
   const [pendingWithdrawals, setPendingWithdrawals] = useState(0);
+  const [supportUnread, setSupportUnread] = useState(0);
   const onLogin = path === '/login';
 
   useEffect(() => {
@@ -65,9 +67,18 @@ export function AdminShell({ children }: { children: ReactNode }) {
           setPendingWithdrawals(s.pendingWithdrawals);
         })
         .catch(() => {});
+    const loadSupport = () =>
+      adminApi<{ unreadThreads: number }>('/admin/support/unread')
+        .then((s) => setSupportUnread(s.unreadThreads))
+        .catch(() => {});
     void load();
+    void loadSupport();
     const timer = setInterval(load, 30_000);
-    return () => clearInterval(timer);
+    const supportTimer = setInterval(() => document.visibilityState === 'visible' && void loadSupport(), 10_000);
+    return () => {
+      clearInterval(timer);
+      clearInterval(supportTimer);
+    };
   }, [admin, path]);
 
   if (onLogin) return <>{children}</>;
@@ -109,6 +120,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
               >
                 <NavIcon size={22} />
                 <span className="flex-1">{label}</span>
+                {href === '/assistance' && supportUnread > 0 && (
+                  <span className="grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-[11.5px] font-semibold text-[#0b141a]">{supportUnread}</span>
+                )}
                 {href === '/signalements' && openReports > 0 && (
                   <span className="grid h-5 min-w-5 place-items-center rounded-full bg-danger px-1.5 text-[11.5px] font-semibold text-white">{openReports}</span>
                 )}
@@ -138,8 +152,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
         <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-line/60 bg-surface lg:block">{nav}</aside>
 
         <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-line/60 bg-surface/95 px-2 backdrop-blur lg:hidden">
-          <button type="button" onClick={() => setMenuOpen(true)} aria-label="Ouvrir le menu" className="grid size-11 place-items-center rounded-full hover:bg-white/5">
+          <button type="button" onClick={() => setMenuOpen(true)} aria-label="Ouvrir le menu" className="relative grid size-11 place-items-center rounded-full hover:bg-white/5">
             <Icon.Menu size={24} />
+            {supportUnread + openReports > 0 && <span className="absolute top-2 right-2 size-2.5 rounded-full bg-accent ring-2 ring-surface" />}
           </button>
           <span className="text-[17px] font-medium">{NAV.find((n) => isActive(path, n.href))?.label ?? 'LuChat Admin'}</span>
         </header>

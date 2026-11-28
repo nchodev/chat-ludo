@@ -9,7 +9,9 @@ const contentSecurityPolicy = [
   // Next.js inlines its bootstrap scripts.
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:",
+  // Photos and voice notes of support conversations are shown from blob: URLs.
+  "img-src 'self' data: blob:",
+  "media-src 'self' blob:",
   "font-src 'self' data:",
   `connect-src ${connectSrc}`,
   "frame-ancestors 'none'",
@@ -23,7 +25,8 @@ const securityHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'Referrer-Policy', value: 'no-referrer' },
   { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
-  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+  // The microphone records voice replies to players (Assistance).
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(self), geolocation=()' },
   ...(process.env.NODE_ENV === 'production' ? [{ key: 'Content-Security-Policy', value: contentSecurityPolicy }] : []),
 ];
 

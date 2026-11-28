@@ -11,6 +11,7 @@ import { ProfileQrSheet } from './ProfileQr';
 import { QrScanner } from './QrScanner';
 import { useProfile } from '@/lib/profile';
 import { useReferralRules } from '@/lib/referral';
+import { useSupport } from '@/lib/support';
 import { useLang } from '@/lib/i18n';
 
 type IconComponent = ComponentType<{ size?: number; className?: string }>;
@@ -19,6 +20,7 @@ type IconComponent = ComponentType<{ size?: number; className?: string }>;
 export function ProfileView() {
   const { profile, session, rank } = useProfile();
   const { t } = useLang();
+  const { unread: supportUnread } = useSupport();
   const referral = useReferralRules();
   const [qrOpen, setQrOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -148,6 +150,25 @@ export function ProfileView() {
           </span>
         </span>
         <Icon.ChevronRight className="shrink-0 text-[#8696a0]" />
+      </Link>
+
+      <Link href="/assistance" className="flex items-center gap-4 rounded-[28px] bg-[#1f2c33] p-4 transition active:scale-[0.99]">
+        <span className="grid size-11 shrink-0 place-items-center rounded-full bg-[#00a884]/15 text-[#00a884]">
+          <Icon.Chat size={24} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[16px] font-medium">{t('Assistance', 'Support')}</span>
+          <span className="block truncate text-[13px] text-[#8696a0]">
+            {supportUnread > 0
+              ? t(`${supportUnread} nouvelle${supportUnread > 1 ? 's' : ''} réponse${supportUnread > 1 ? 's' : ''}`, `${supportUnread} new ${supportUnread > 1 ? 'replies' : 'reply'}`)
+              : t('Écris à l’équipe LuChat : texte, photo ou vocal', 'Write to the LuChat team: text, photo or voice')}
+          </span>
+        </span>
+        {supportUnread > 0 ? (
+          <span className="grid h-6 min-w-6 shrink-0 place-items-center rounded-full bg-[#00a884] px-1.5 text-[12.5px] font-bold text-[#0b141a]">{supportUnread}</span>
+        ) : (
+          <Icon.ChevronRight className="shrink-0 text-[#8696a0]" />
+        )}
       </Link>
 
       <DailyCard />

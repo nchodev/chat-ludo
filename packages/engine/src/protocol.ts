@@ -367,7 +367,34 @@ export interface MatchStatus {
 }
 
 /** What a notification is about: sets its icon in the notification centre. */
-export type NotificationKind = 'wallet' | 'game' | 'referral' | 'friend' | 'announcement';
+export type NotificationKind = 'wallet' | 'game' | 'referral' | 'friend' | 'announcement' | 'support';
+
+/** A message of a player's conversation with customer support. */
+export interface SupportMessageView {
+  id: number;
+  kind: 'text' | 'image' | 'voice';
+  /** The text, or a photo's caption. */
+  body: string;
+  /** Sent by the support team (false: by the player). */
+  fromStaff: boolean;
+  /** Photo size, to reserve its space before it loads. */
+  width?: number;
+  height?: number;
+  /** Length of a voice note. */
+  durationMs?: number;
+  createdAt: number;
+}
+
+/** The player's support conversation. */
+export interface SupportThreadView {
+  messages: SupportMessageView[];
+  /** Replies from support not read yet. */
+  unread: number;
+  /** Older messages exist before the first one returned. */
+  more: boolean;
+}
+
+export const MAX_SUPPORT_TEXT = 2000;
 
 /** An entry of the notification centre (the bell). Announcements are sent by the admins to everyone. */
 export interface AppNotification {
@@ -414,6 +441,8 @@ export interface ServerToClientEvents {
   'chat:presence': (presence: { username: string; online: boolean }) => void;
   /** Friends or friend requests changed; the social state should be reloaded. */
   'social:changed': () => void;
+  /** A new message in the player's support conversation (from support, or sent from another device). */
+  'support:message': (message: SupportMessageView) => void;
   'draughts:state': (room: DuelRoomView) => void;
   'draughts:closed': (reason: string) => void;
   'draughts:reaction': (message: DuelReactionMessage) => void;

@@ -167,7 +167,7 @@ export function bearer(req: IncomingMessage): string | null {
   return header?.startsWith('Bearer ') ? header.slice(7) : null;
 }
 
-function requireUser(req: IncomingMessage): db.User {
+export function requireUser(req: IncomingMessage): db.User {
   const id = userIdForToken(bearer(req));
   const user = id ? db.getUser(id) : null;
   if (!user) throw new HttpError(401, 'Connecte-toi pour continuer.');
@@ -284,13 +284,18 @@ function messageView(message: db.StoredMessage, viewerId: number, readFloor?: nu
   };
 }
 
-type PushEvent = 'chat:message' | 'chat:read' | 'chat:updated' | 'chat:removed' | 'social:changed';
+type PushEvent = 'chat:message' | 'chat:read' | 'chat:updated' | 'chat:removed' | 'social:changed' | 'support:message';
 type PushPayload<E extends PushEvent> = Parameters<ServerToClientEvents[E]>;
 /** Delivers an event to every connection of a player; `exceptSocket` skips the connection that caused it. */
 export type Push = <E extends PushEvent>(userId: number, event: E, args: PushPayload<E>, exceptSocket?: string) => void;
 
 let push: Push = () => {};
 let hasOpenConnection: (userId: number) => boolean = () => false;
+
+/** Sends an event to every open app of a player (see `Push`). */
+export function pushTo<E extends PushEvent>(userId: number, event: E, args: PushPayload<E>, exceptSocket?: string) {
+  push(userId, event, args, exceptSocket);
+}
 
 export function setPush(fn: Push, isConnected: (userId: number) => boolean) {
   push = fn;
@@ -513,9 +518,9 @@ export function forwardMessage(user: db.User, rawId: unknown, rawTargets: unknow
   });
 }
 
-const VOICE_MIME = /^audio\/(webm|ogg|mp4|mpeg|aac|x-m4a)(;.*)?$/;
+export const VOICE_MIME = /^audio\/(webm|ogg|mp4|mpeg|aac|x-m4a)(;.*)?$/;
 
-async function readBytes(req: IncomingMessage, max: number, tooBig: string): Promise<Buffer> {
+export async function readBytes(req: IncomingMessage, max: number, tooBig: string): Promise<Buffer> {
   if (Number(req.headers['content-length'] ?? 0) > max) throw new HttpError(413, tooBig);
   const chunks: Buffer[] = [];
   let size = 0;
@@ -528,7 +533,7 @@ async function readBytes(req: IncomingMessage, max: number, tooBig: string): Pro
 }
 
 /** The file's real type from its first bytes, whatever the client claims: only plain raster formats. */
-function imageType(data: Buffer): string | null {
+export function imageType(data: Buffer): string | null {
   if (data.length < 12) return null;
   if (data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return 'image/jpeg';
   if (data.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
@@ -1232,6 +1237,17 @@ export function registerRoutes(extra: Record<string, Handler>) {
   Object.assign(routes, extra);
 }
 
+/**
+ * A route that reads the raw request body (an uploaded file) or writes its own response (a file):
+ * it returns the JSON to send, or nothing once it has answered itself.
+ */
+export type RawHandler = (req: IncomingMessage, res: ServerResponse) => Promise<unknown>;
+const rawRoutes: Record<string, RawHandler> = {};
+
+export function registerRawRoutes(extra: Record<string, RawHandler>) {
+  Object.assign(rawRoutes, extra);
+}
+
 /** Handles /api/* requests; returns false for other paths. */
 export async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const path = (req.url ?? '').split('?')[0];
@@ -1249,6 +1265,22 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
       // The rest of a rejected upload is never read, so the connection can't be reused.
       if (!req.complete) res.setHeader('Connection', 'close');
       if (err instanceof HttpError) send(res, err.status, { error: err.message });
+      else {
+        console.error(err);
+        send(res, 500, { error: 'Erreur du serveur.' });
+      }
+    }
+    return true;
+  }
+  const raw = rawRoutes[`${req.method} ${path}`];
+  if (raw) {
+    try {
+      const data = await raw(req, res);
+      if (!res.headersSent) send(res, 200, data);
+    } catch (err) {
+      if (!req.complete) res.setHeader('Connection', 'close');
+      if (res.headersSent) res.destroy();
+      else if (err instanceof HttpError) send(res, err.status, { error: err.message });
       else {
         console.error(err);
         send(res, 500, { error: 'Erreur du serveur.' });
