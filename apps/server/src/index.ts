@@ -5,8 +5,7 @@ import {
   BOT_LEVELS,
   GameError,
   isColor,
-  isDuelReactionId,
-  isReactionId,
+  isReactionFor,
   sanitizeRules,
   type Ack,
   type ClientToServerEvents,
@@ -751,7 +750,7 @@ io.on('connection', (socket: LudoSocket) => {
   socket.on(
     'game:react',
     inRoom(socket, (room, token, payload: { reaction: unknown }) => {
-      if (!isReactionId(payload?.reaction)) throw new RoomError('Réaction inconnue.');
+      if (!isReactionFor('ludo', payload?.reaction)) throw new RoomError('Réaction inconnue.');
       rooms.react(room, token, payload.reaction);
     }),
   );
@@ -975,7 +974,7 @@ io.on('connection', (socket: LudoSocket) => {
   socket.on(
     'draughts:react',
     inDraughts(socket, (room, token, payload: { reaction: unknown }) => {
-      if (!isDuelReactionId(payload?.reaction)) throw new DuelRoomError('Réaction inconnue.');
+      if (!isReactionFor(room.kind, payload?.reaction)) throw new DuelRoomError('Réaction inconnue.');
       draughts.react(room, token, payload.reaction);
     }),
   );

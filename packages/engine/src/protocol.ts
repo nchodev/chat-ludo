@@ -17,6 +17,8 @@ export interface PublicSeat {
   botLevel?: BotLevel;
   connected: boolean;
   isHost: boolean;
+  /** Account of a signed-in player, so others can add them as a friend. */
+  username: string | null;
   /** With a stake set, why this player couldn't put it in: no account or not enough coins. */
   stakeIssue?: 'guest' | 'funds' | null;
 }

@@ -28,7 +28,7 @@ import {
   potSplit,
   stakeConfig,
 } from '@ludo/engine';
-import { recordOnlineGame } from './api';
+import { recordOnlineGame, usernameOf } from './api';
 import {
   archiveGame,
   deleteLiveRoom,
@@ -697,6 +697,7 @@ export class RoomManager {
         botLevel: seat.kind === 'bot' ? seat.level : undefined,
         connected: seat.kind === 'bot' || !!(room.shared ? room.members.get(room.hostToken)?.socketId : member?.socketId),
         isHost: seat.kind === 'human' && seat.token === room.hostToken,
+        username: member?.userId ? usernameOf(member.userId) : null,
         stakeIssue: room.wager && seat.kind === 'human' ? this.stakeIssue(room.wager, member?.userId) : null,
       };
     });

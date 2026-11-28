@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BASE, applyMove, botReaction, createGame, eventKey, forfeit, getReaction, isReactionId, rollDice } from './index';
+import { BASE, applyMove, botReaction, createGame, eventKey, forfeit, REACTIONS, getReaction, isReactionFor, isReactionId, reactionsFor, rollDice } from './index';
 
 const duel = [
   { color: 'red' as const, name: 'Rouge' },
@@ -41,5 +41,21 @@ describe('réactions', () => {
     const g = createGame(duel);
     const rolled = rollDice(g, 6);
     expect(eventKey(rolled)).not.toBe(eventKey(applyMove(rolled, 0)));
+  });
+});
+
+describe('quick messages per game', () => {
+  it('have a distinct id each', () => {
+    expect(new Set(REACTIONS.map((r) => r.id)).size).toBe(REACTIONS.length);
+  });
+
+  it('give every game the shared ones and its own phrases', () => {
+    for (const game of ['ludo', 'dames', 'awale'] as const) {
+      const offered = reactionsFor(game);
+      expect(offered.some((r) => r.game === game)).toBe(true);
+      expect(offered.some((r) => r.id === 'gg')).toBe(true);
+      expect(offered.every((r) => isReactionFor(game, r.id))).toBe(true);
+    }
+    expect(isReactionFor('ludo', 'awale-harvest')).toBe(false);
   });
 });

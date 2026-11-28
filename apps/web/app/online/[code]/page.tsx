@@ -23,6 +23,7 @@ import { CoinAmount, CoinIcon, GemIcon } from '@/components/Coins';
 import { BackButton } from '@/components/BackButton';
 import { ColorPreference } from '@/components/ColorPreference';
 import { CustomStake } from '@/components/CustomStake';
+import { GameFriendsButton } from '@/components/GameFriendsButton';
 import { GameView } from '@/components/GameView';
 import { InviteButtons } from '@/components/InviteButtons';
 import { NameForm } from '@/components/NameForm';
@@ -280,6 +281,12 @@ function OnlineGame({ room, actions, onQuit, onStepOut }: { room: RoomView; acti
       title={room.shared ? 'LUDO' : room.code}
       onQuit={requestQuit}
       onResign={running && stillPlaying && !room.shared ? () => setQuitOpen(true) : undefined}
+      extraAction={
+        // On a shared phone the players are side by side, and only one account is signed in.
+        !room.shared && (
+          <GameFriendsButton players={room.seats.filter((s) => s.kind === 'human' && s.color !== room.you)} className="icon-btn size-11 shrink-0" />
+        )
+      }
       rewardColors={room.shared ? [] : room.you && !youForfeited ? [room.you] : []}
       online
       serverSummary={room.result}

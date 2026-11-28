@@ -1,24 +1,32 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { REACTIONS, REACTION_COOLDOWN_MS, type Reaction } from '@ludo/engine';
+import { REACTION_COOLDOWN_MS, type Reaction } from '@ludo/engine';
 import { tr } from '@/lib/i18n';
-
-
+import { useProfile } from '@/lib/profile';
+import { useReactionRanking } from '@/lib/reactions';
 interface ReactionButtonProps {
   onReact: (reaction: string) => void;
   hidden: boolean;
   onHiddenChange: (hidden: boolean) => void;
-  /** Reactions offered; every one by default (Ludo). */
-  reactions?: Reaction[];
+  /** Reactions offered in this game. */
+  reactions: Reaction[];
 }
 
-/** Button opening a panel of quick emojis and phrases to send to the other players. */
-export function ReactionButton({ onReact, hidden, onHiddenChange, reactions = REACTIONS }: ReactionButtonProps) {
-  const EMOJIS = reactions.filter((r) => !r.text);
-  const PHRASES = reactions.filter((r) => r.text);
+/**
+ * Button opening a panel of quick emojis and phrases to send to the other players, the ones this
+ * player sends most first.
+ */
+export function ReactionButton({ onReact, hidden, onHiddenChange, reactions }: ReactionButtonProps) {
+  const { session } = useProfile();
+  const { rank, count } = useReactionRanking(session?.username);
   const [open, setOpen] = useState(false);
   const [cooling, setCooling] = useState(false);
+
+  // The panel is only rendered once opened, in the browser: the saved counts can be read here.
+  const ranked = open ? rank(reactions) : [];
+  const emojis = ranked.filter((r) => !r.text);
+  const phrases = ranked.filter((r) => r.text);
 
   useEffect(() => {
     if (!cooling) return;
@@ -29,6 +37,7 @@ export function ReactionButton({ onReact, hidden, onHiddenChange, reactions = RE
   const send = (id: string) => {
     if (cooling) return;
     onReact(id);
+    count(id);
     setCooling(true);
     setOpen(false);
   };
@@ -54,18 +63,20 @@ export function ReactionButton({ onReact, hidden, onHiddenChange, reactions = RE
             onClick={() => setOpen(false)}
           />
           <div className="pop-in absolute right-0 bottom-full left-0 z-40 mb-2 overflow-hidden rounded-2xl border border-white/10 bg-[#23244a]/95 py-1.5 shadow-2xl backdrop-blur">
-            <div className="flex items-center gap-0.5 overflow-x-auto px-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {EMOJIS.map((r) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => send(r.id)}
-                  disabled={cooling}
-                  className="grid size-10 shrink-0 place-items-center rounded-xl text-[24px] transition hover:bg-white/10 active:scale-90 disabled:opacity-40"
-                >
-                  {r.emoji}
-                </button>
-              ))}
+            <div className="flex items-center pr-1.5">
+              <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto px-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {emojis.map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => send(r.id)}
+                    disabled={cooling}
+                    className="grid size-10 shrink-0 place-items-center rounded-xl text-[24px] transition hover:bg-white/10 active:scale-90 disabled:opacity-40"
+                  >
+                    {r.emoji}
+                  </button>
+                ))}
+              </div>
               <button
                 type="button"
                 onClick={() => onHiddenChange(!hidden)}
@@ -78,8 +89,8 @@ export function ReactionButton({ onReact, hidden, onHiddenChange, reactions = RE
                 {hidden ? tr('🔕 Masquées', '🔕 Hidden') : tr('🔔 Visibles', '🔔 Shown')}
               </button>
             </div>
-            <div className="mt-1 flex gap-1.5 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {PHRASES.map((r) => (
+            <div className="mt-1 flex max-h-36 flex-wrap gap-1.5 overflow-y-auto overscroll-contain px-2 py-0.5">
+              {phrases.map((r) => (
                 <button
                   key={r.id}
                   type="button"

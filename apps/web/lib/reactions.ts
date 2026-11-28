@@ -6,6 +6,48 @@ import { sfx } from './sound';
 
 const BUBBLE_MS = 3200;
 const HIDE_KEY = 'ludo:hideReactions';
+const USE_KEY = 'ludo:reactionUse';
+
+/** How many times a player sent each reaction, by reaction id. */
+type ReactionUse = Record<string, number>;
+
+/** Kept on this device, apart for each account that plays on it. */
+const useKey = (username: string | undefined) => (username ? `${USE_KEY}:${username}` : USE_KEY);
+
+function readUse(key: string): ReactionUse {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(key) ?? '{}');
+    return saved && typeof saved === 'object' ? (saved as ReactionUse) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Counts what the player sends and puts their most used reactions first. */
+export function useReactionRanking(username: string | undefined) {
+  const key = useKey(username);
+  /** Read when asked for, so the order only moves between two openings of the panel. */
+  const rank = useCallback(
+    (reactions: Reaction[]) => {
+      const use = readUse(key);
+      // The sort is stable: reactions used as often keep their usual order.
+      return [...reactions].sort((a, b) => (Number(use[b.id]) || 0) - (Number(use[a.id]) || 0));
+    },
+    [key],
+  );
+  const count = useCallback(
+    (id: string) => {
+      const use = readUse(key);
+      try {
+        localStorage.setItem(key, JSON.stringify({ ...use, [id]: (Number(use[id]) || 0) + 1 }));
+      } catch {
+        /* storage blocked: the order just stays as it is */
+      }
+    },
+    [key],
+  );
+  return { rank, count };
+}
 
 export interface Bubble {
   reaction: Reaction;

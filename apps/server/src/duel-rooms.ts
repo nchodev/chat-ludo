@@ -29,7 +29,7 @@ import {
   type Side,
   type StakeTable,
 } from '@ludo/engine';
-import { recordDuelOnlineGame } from './api';
+import { recordDuelOnlineGame, usernameOf } from './api';
 import {
   archiveGame,
   deleteLiveRoom,
@@ -485,6 +485,7 @@ export class DuelManager {
           name: m?.name ?? 'Joueur parti',
           connected: !!m?.socketId,
           isHost: t === room.hostToken,
+          username: m?.userId ? usernameOf(m.userId) : null,
           stakeIssue: room.wager ? this.stakeIssue(room.wager, m?.userId) : null,
         };
       }),

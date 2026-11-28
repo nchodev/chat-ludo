@@ -3,9 +3,10 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import { DUEL_FIRST_MOVE_MS, DUEL_INCREMENT_MS, DUEL_MINUTES, DUEL_REACTIONS, otherSide, type DuelGame, type DuelRoomViewOf, type RoomStake, type Side } from '@ludo/engine';
+import { DUEL_FIRST_MOVE_MS, DUEL_INCREMENT_MS, DUEL_MINUTES, otherSide, reactionsFor, type DuelGame, type DuelRoomViewOf, type RoomStake, type Side } from '@ludo/engine';
 import { AppBar } from '@/components/AppBar';
 import { CoinAmount } from '@/components/Coins';
+import { GameFriendsButton } from '@/components/GameFriendsButton';
 import { Icon } from '@/components/Icons';
 import { InviteButtons } from '@/components/InviteButtons';
 import { NameForm } from '@/components/NameForm';
@@ -328,7 +329,12 @@ function OnlineGame({
   const { show } = reactions;
   useDuelReactions(useCallback((message) => show({ color: message.side, reaction: message.reaction }), [show]));
   const reactionButton = you && room.players.length === 2 && (
-    <ReactionButton onReact={actions.react} hidden={reactions.hidden} onHiddenChange={reactions.setHidden} reactions={DUEL_REACTIONS} />
+    <ReactionButton onReact={actions.react} hidden={reactions.hidden} onHiddenChange={reactions.setHidden} reactions={reactionsFor(room.kind)} />
+  );
+
+  const others = room.players.filter((_, i) => i !== room.you);
+  const friendsButton = others.length > 0 && (
+    <GameFriendsButton players={others} className="grid size-11 shrink-0 place-items-center rounded-full bg-[#1f2c33] text-[#e9edef] active:bg-white/10" />
   );
 
   const payoutKey = room.stake
@@ -404,6 +410,7 @@ function OnlineGame({
           playing && you ? (
             <>
               {reactionButton}
+              {friendsButton}
               <GameButton onClick={actions.draw} disabled={youOffered} icon={<Icon.Handshake size={18} />}>
                 {youOffered ? tr('Nulle proposée', 'Draw offered') : offerFromOpponent ? tr('Accepter la nulle', 'Accept the draw') : tr('Proposer la nulle', 'Offer a draw')}
               </GameButton>
@@ -411,9 +418,12 @@ function OnlineGame({
                 {tr('Abandonner', 'Resign')}
               </GameButton>
             </>
-          ) : (
-            reactionButton || undefined
-          )
+          ) : reactionButton || friendsButton ? (
+            <>
+              {reactionButton}
+              {friendsButton}
+            </>
+          ) : undefined
         }
         result={
           <>

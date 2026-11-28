@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { MAX_TIMEOUTS, TEAMMATE, controlledColor, type Color, type GameState, type ProgressSummary } from '@ludo/engine';
+import { MAX_TIMEOUTS, TEAMMATE, controlledColor, type Color, type GameState, type ProgressSummary, reactionsFor } from '@ludo/engine';
 import { BackButton } from './BackButton';
 import { Icon } from './Icons';
 import { Board } from './Board';
@@ -41,6 +41,8 @@ interface GameViewProps {
   /** Shows a resign button in the header (online games you are still playing). */
   onResign?: () => void;
   overlayActions?: ReactNode;
+  /** More buttons beside the reactions, in the bar under the board. */
+  extraAction?: ReactNode;
   /** Shown under the end-of-game actions, e.g. the dice fairness proof. */
   overlayFooter?: ReactNode;
   /** Message shown above the action bar, e.g. when this player was eliminated. */
@@ -127,6 +129,7 @@ export function GameView({
   onQuit,
   onResign,
   overlayActions,
+  extraAction,
   overlayFooter,
   notice,
   rewardColors,
@@ -326,10 +329,12 @@ export function GameView({
           <div className="rounded-2xl bg-amber-400/15 px-4 py-2 text-center text-sm font-medium text-amber-100">{notice}</div>
         )}
 
-        <div className="card relative mt-1 flex items-center gap-3 p-3">
+        {/* Above the die: the card's blur traps the reactions panel at the card's own level. */}
+        <div className="card relative z-20 mt-1 flex items-center gap-3 p-3">
           {reactions.onReact && (
-            <ReactionButton onReact={reactions.onReact} hidden={reactions.hidden} onHiddenChange={reactions.setHidden} />
+            <ReactionButton onReact={reactions.onReact} hidden={reactions.hidden} onHiddenChange={reactions.setHidden} reactions={reactionsFor('ludo')} />
           )}
+          {extraAction}
           <Avatar color={current.color} seat={currentSeat} size={reactions.onReact ? 36 : 44} palette={palette} />
           <div className="min-w-0 flex-1">
             <p className="flex items-center gap-2 text-sm font-bold" style={{ color: palette[current.color].main }}>
