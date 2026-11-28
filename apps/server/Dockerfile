@@ -4,7 +4,8 @@ FROM litestream/litestream:0.3.13 AS litestream
 
 FROM node:24-slim
 # Litestream needs the system CA bundle to reach R2 over HTTPS (slim images ship without it).
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+# ffmpeg converts voice notes to a format every phone can play.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=litestream /usr/local/bin/litestream /usr/local/bin/litestream

@@ -56,6 +56,7 @@ import { linkPreview, normalizePreviewUrl } from './link-preview';
 import { notify } from './notify';
 import { VAPID_PUBLIC_KEY, sendPush } from './push';
 import { RateLimiter, cleanText, clientIp } from './security';
+import { playableVoice } from './voice';
 
 const MAX_BODY_BYTES = 256 * 1024;
 const USERNAME_RE = /^[\p{L}\p{N}_-]{3,16}$/u;
@@ -573,18 +574,26 @@ async function receiveVoice(req: IncomingMessage) {
   const replyTo = replyTarget(user, to, replyParam ? Number(replyParam) : null);
   const data = await readBytes(req, MAX_VOICE_BYTES, 'Message vocal trop long.');
   if (data.length < 100) throw new HttpError(400, 'Message vocal vide.');
+  const audio = await playableVoice({ mime, data });
   const message = storeIn(user, to, { body: '', kind: 'voice', durationMs, replyTo });
-  db.storeMedia(message.id, mime, data);
+  db.storeMedia(message.id, audio.mime, audio.data);
   return { message: broadcastNew(user, to, db.getMessage(message.id)!) };
 }
 
 /** GET /api/messages/media?id=… : the recording or photo of a message, for the two people in the conversation. */
-function sendMedia(req: IncomingMessage, res: ServerResponse) {
+async function sendMedia(req: IncomingMessage, res: ServerResponse) {
   const user = requireUser(req);
   const id = Number(new URL(req.url ?? '', 'http://x').searchParams.get('id'));
   const message = ownMessage(user, Number.isInteger(id) ? id : null);
-  const media = (message.kind === 'voice' || message.kind === 'image') && !message.deleted ? db.getMedia(message.id) : null;
+  let media = (message.kind === 'voice' || message.kind === 'image') && !message.deleted ? db.getMedia(message.id) : null;
   if (!media) throw new HttpError(404, 'Fichier introuvable.');
+  // Voice notes stored before the conversion are converted the first time someone asks for them.
+  if (message.kind === 'voice') {
+    const audio = await playableVoice(media);
+    // Deleted while converting: don't bring the recording back.
+    if (audio !== media && db.getMedia(message.id)) db.storeMedia(message.id, audio.mime, audio.data);
+    media = audio;
+  }
   res.writeHead(200, {
     'Content-Type': media.mime,
     'Content-Length': media.data.length,
@@ -1262,7 +1271,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
   }
   if (req.method === 'GET' && (path === '/api/messages/media' || path === '/api/messages/audio')) {
     try {
-      sendMedia(req, res);
+      await sendMedia(req, res);
     } catch (err) {
       if (err instanceof HttpError) send(res, err.status, { error: err.message });
       else {

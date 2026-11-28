@@ -97,7 +97,9 @@ export class VoicePlayback {
       try {
         await this.playElement();
         return;
-      } catch {
+      } catch (err) {
+        // Paused, or another note took the element, before this one started: not a failure.
+        if (err instanceof DOMException && err.name === 'AbortError') return;
         this.dropElement();
         this.useWebAudio = true;
       }

@@ -1682,7 +1682,7 @@ export function storeGroupMessage(senderId: number, groupId: number, message: Ne
 
 /** File of a voice note or a photo (the table predates photos, hence its name). */
 export function storeMedia(messageId: number, mime: string, data: Uint8Array) {
-  db.prepare('INSERT INTO chat_audio (message_id, mime, data) VALUES (?, ?, ?)').run(messageId, mime, data);
+  db.prepare('INSERT OR REPLACE INTO chat_audio (message_id, mime, data) VALUES (?, ?, ?)').run(messageId, mime, data);
 }
 
 export function getMedia(messageId: number): { mime: string; data: Uint8Array } | null {
