@@ -1,6 +1,6 @@
 'use client';
 
-import type { DuelGame } from '@ludo/engine';
+import { DUEL_INCREMENT_MS, DUEL_MINUTES, type DuelGame } from '@ludo/engine';
 import { Icon } from '@/components/Icons';
 import { RoomHub, type RoomPerk } from '@/components/RoomHub';
 import { getSessionToken } from '@/lib/profile';
@@ -36,7 +36,7 @@ export function DuelSalonPage({ kind }: { kind: DuelGame }) {
   const { t } = useLang();
   const perks: RoomPerk[] = [
     firstPerk(kind),
-    { icon: Icon.Timer, title: t(`${ui.clockMs / 60_000} minutes chacun`, `${ui.clockMs / 60_000} minutes each`), text: t('Pendule pour chaque joueur.', 'A clock for each player.') },
+    { icon: Icon.Timer, title: t(`${DUEL_MINUTES[0]} à ${DUEL_MINUTES[DUEL_MINUTES.length - 1]} min chacun`, `${DUEL_MINUTES[0]} to ${DUEL_MINUTES[DUEL_MINUTES.length - 1]} min each`), text: t(`Au choix de l’hôte, + ${DUEL_INCREMENT_MS / 1000} s par coup.`, `Host’s choice, + ${DUEL_INCREMENT_MS / 1000} s per move.`) },
     { icon: Icon.Eye, title: t('Spectateurs', 'Spectators'), text: t('D’autres amis peuvent regarder.', 'Other friends can watch.') },
     { icon: Icon.QrCode, title: t('Invitation facile', 'Easy invitation'), text: t('WhatsApp, lien ou QR code.', 'WhatsApp, link or QR code.') },
   ];

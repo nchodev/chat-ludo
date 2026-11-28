@@ -1,4 +1,5 @@
 import type { Color } from './constants';
+import type { Side } from './draughts';
 import type { GameState } from './game';
 
 export interface Reaction {
@@ -44,6 +45,22 @@ export function getReaction(id: string): Reaction | undefined {
 
 export function isReactionId(value: unknown): value is string {
   return typeof value === 'string' && BY_ID.has(value);
+}
+
+/** Phrases that only make sense in Ludo (dice, pawns sent home): not offered in the other games. */
+const LUDO_ONLY = new Set(['bye', 'six']);
+
+/** Reactions offered in the two-player games (draughts, awale). */
+export const DUEL_REACTIONS: Reaction[] = REACTIONS.filter((r) => !LUDO_ONLY.has(r.id));
+
+export function isDuelReactionId(value: unknown): value is string {
+  return isReactionId(value) && !LUDO_ONLY.has(value);
+}
+
+/** A reaction sent by one side of a two-player game. */
+export interface DuelReactionMessage {
+  side: Side;
+  reaction: string;
 }
 
 export interface ReactionMessage {

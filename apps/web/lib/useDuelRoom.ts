@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { DuelGame, DuelMovePayload, DuelRoomView, DuelRoomViewOf } from '@ludo/engine';
+import type { DuelGame, DuelMovePayload, DuelReactionMessage, DuelRoomView, DuelRoomViewOf } from '@ludo/engine';
+import { enterRoom, forgetRoom } from './activeRoom';
 import { getSessionToken } from './profile';
 import { NOT_CONNECTED } from './connectivity';
 import { getDraughtsToken, getSocket, storeDraughtsToken, type LudoClientSocket } from './socket';
@@ -23,6 +24,7 @@ export function useDuelRoom<K extends DuelGame>(kind: K, code: string, name: str
     const socket = getSocket();
     const join = () => {
       setConnected(true);
+      enterRoom(code);
       socket.emit('draughts:join', { code, name, token: getDraughtsToken(code), auth: getSessionToken() }, (res) => {
         if (res.ok) {
           storeDraughtsToken(code, res.token);
@@ -76,11 +78,16 @@ export function useDuelRoom<K extends DuelGame>(kind: K, code: string, name: str
       move: (move: DuelMovePayload) => send((s) => s.emit('draughts:move', move, onAck)),
       start: () => send((s) => s.emit('draughts:start', onAck)),
       setWager: (table: string | null) => send((s) => s.emit('draughts:setWager', { table }, onAck)),
+      setMinutes: (minutes: number) => send((s) => s.emit('draughts:setMinutes', { minutes }, onAck)),
       resign: () => send((s) => s.emit('draughts:resign', onAck)),
       draw: () => send((s) => s.emit('draughts:draw', onAck)),
       declineDraw: () => send((s) => s.emit('draughts:declineDraw', onAck)),
       rematch: () => send((s) => s.emit('draughts:rematch', onAck)),
-      leave: () => getSocket().emit('draughts:leave'),
+      react: (reaction: string) => send((s) => s.emit('draughts:react', { reaction })),
+      leave: () => {
+        getSocket().emit('draughts:leave');
+        forgetRoom('duel');
+      },
     };
   }, []);
 
@@ -90,3 +97,14 @@ export function useDuelRoom<K extends DuelGame>(kind: K, code: string, name: str
 }
 
 export type DuelActions = ReturnType<typeof useDuelRoom>['actions'];
+
+/** Calls `listener` for every quick reaction sent in the current two-player room. */
+export function useDuelReactions(listener: (message: DuelReactionMessage) => void) {
+  useEffect(() => {
+    const socket = getSocket();
+    socket.on('draughts:reaction', listener);
+    return () => {
+      socket.off('draughts:reaction', listener);
+    };
+  }, [listener]);
+}

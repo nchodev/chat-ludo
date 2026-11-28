@@ -5,6 +5,7 @@ import {
   BOT_LEVELS,
   GameError,
   isColor,
+  isDuelReactionId,
   isReactionId,
   sanitizeRules,
   type Ack,
@@ -164,7 +165,11 @@ const matchmaker = new Matchmaker(rooms, {
   openPot: (potId, table, userIds) => openPot(potId, table.id, table.currency, table.stake, userIds),
 });
 
-const draughts = new DuelManager(broadcastDraughts);
+const draughts = new DuelManager(broadcastDraughts, (room, message) => {
+  for (const socket of io.sockets.sockets.values()) {
+    if (socket.data.dcode === room.code) socket.emit('draughts:reaction', message);
+  }
+});
 const draughtsQueue = new DuelQueue(draughts, {
   status: (socketId, status) => io.sockets.sockets.get(socketId)?.emit('draughts:queue', status),
   found: (socketId, match) => io.sockets.sockets.get(socketId)?.emit('draughts:found', match),
@@ -960,8 +965,19 @@ io.on('connection', (socket: LudoSocket) => {
     }),
   );
   socket.on(
+    'draughts:setMinutes',
+    inDraughts(socket, (room, token, payload: { minutes: unknown }) => draughts.setMinutes(room, token, payload?.minutes as number)),
+  );
+  socket.on(
     'draughts:move',
     inDraughts(socket, (room, token, payload: unknown) => draughts.move(room, token, payload)),
+  );
+  socket.on(
+    'draughts:react',
+    inDraughts(socket, (room, token, payload: { reaction: unknown }) => {
+      if (!isDuelReactionId(payload?.reaction)) throw new DuelRoomError('Réaction inconnue.');
+      draughts.react(room, token, payload.reaction);
+    }),
   );
   socket.on('draughts:resign', inDraughts(socket, (room, token) => draughts.resign(room, token)));
   socket.on('draughts:draw', inDraughts(socket, (room, token) => draughts.draw(room, token)));

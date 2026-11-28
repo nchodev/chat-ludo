@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import {
+  MAX_TIMEOUTS,
   TURN_TIME_MS,
   potSplit,
   stakeTable,
@@ -28,7 +29,7 @@ const SLOT_COLORS = [COLOR_HEX.red, COLOR_HEX.green, COLOR_HEX.yellow, COLOR_HEX
 const format = (winnerPercent: number) => [
   { icon: Icon.Groups, title: tr('2 à 4 joueurs', '2 to 4 players'), text: tr('Des joueurs en ligne, au hasard', 'Random online players') },
   { icon: Icon.Bolt, title: tr('Parties courtes', 'Short games'), text: tr('2 pions chacun, sortie avec un 1 ou un 6', '2 pawns each, out on a 1 or 6') },
-  { icon: Icon.Hourglass, title: tr(`${TURN_TIME_MS / 1000} s par tour`, `${TURN_TIME_MS / 1000} s per turn`), text: tr('Après 6 dépassements, la partie est perdue', 'After 6 timeouts, the game is lost') },
+  { icon: Icon.Hourglass, title: tr(`${TURN_TIME_MS / 1000} s par tour`, `${TURN_TIME_MS / 1000} s per turn`), text: tr(`Temps écoulé : l’ordinateur joue pour toi. ${MAX_TIMEOUTS} tours manqués de suite et la partie est perdue`, `Out of time: the computer plays for you. ${MAX_TIMEOUTS} missed turns in a row and you lose`) },
   { icon: Icon.Trophy, title: tr(`${winnerPercent} % de la cagnotte`, `${winnerPercent}% of the pot`), text: tr('Pour le gagnant, le reste est la commission', 'For the winner, the rest is the commission') },
 ];
 

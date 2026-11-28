@@ -1,20 +1,22 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { REACTIONS, REACTION_COOLDOWN_MS } from '@ludo/engine';
+import { REACTIONS, REACTION_COOLDOWN_MS, type Reaction } from '@ludo/engine';
 import { tr } from '@/lib/i18n';
 
-const EMOJIS = REACTIONS.filter((r) => !r.text);
-const PHRASES = REACTIONS.filter((r) => r.text);
 
 interface ReactionButtonProps {
   onReact: (reaction: string) => void;
   hidden: boolean;
   onHiddenChange: (hidden: boolean) => void;
+  /** Reactions offered; every one by default (Ludo). */
+  reactions?: Reaction[];
 }
 
 /** Button opening a panel of quick emojis and phrases to send to the other players. */
-export function ReactionButton({ onReact, hidden, onHiddenChange }: ReactionButtonProps) {
+export function ReactionButton({ onReact, hidden, onHiddenChange, reactions = REACTIONS }: ReactionButtonProps) {
+  const EMOJIS = reactions.filter((r) => !r.text);
+  const PHRASES = reactions.filter((r) => r.text);
   const [open, setOpen] = useState(false);
   const [cooling, setCooling] = useState(false);
 

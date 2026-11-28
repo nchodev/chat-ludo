@@ -1,8 +1,12 @@
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import {
-  AWALE_CLOCK_MS,
+  DEFAULT_DUEL_MINUTES,
+  DUEL_FIRST_MOVE_MS,
+  DUEL_INCREMENT_MS,
+  isDuelMinutes,
+  REACTION_COOLDOWN_MS,
+  type DuelReactionMessage,
   AwaleError,
-  DRAUGHTS_CLOCK_MS,
   DraughtsError,
   endAwaleGame,
   endDraughtsGame,
@@ -43,7 +47,7 @@ import { LINKED_PLAYERS_ERROR, originOf, sameOrigin, type Origin } from './ident
 const MIN_MOVES_TO_COUNT = 10;
 
 /** Ways any of these games can end that don't come from the rules of the game itself. */
-type RoomEnd = 'resign' | 'timeout' | 'abandon' | 'agreement';
+type RoomEnd = 'resign' | 'timeout' | 'abandon' | 'agreement' | 'aborted';
 
 /** What a room needs to know about a game's rules; moves come from clients and are checked here. */
 interface DuelRules {
@@ -51,7 +55,6 @@ interface DuelRules {
   /** Plays the move a client sent, after checking its shape; the rules check it is legal. */
   play(state: DuelState, payload: unknown): DuelState;
   end(state: DuelState, winner: Side | null, reason: RoomEnd): DuelState;
-  clockMs: number;
   /** Counted for weekly quests: pieces taken (draughts) or captures made (awalé). */
   captures(state: DuelState, side: Side): number;
   /** The state sent to players: the move list and the positions seen stay on the server. */
@@ -76,7 +79,6 @@ const RULES: Record<DuelGame, DuelRules> = {
       }
     },
     end: (state, winner, reason) => endDraughtsGame(state as DraughtsState, winner, reason),
-    clockMs: DRAUGHTS_CLOCK_MS,
     captures: (state, side) => (state as DraughtsState).history.filter((m) => m.side === side).reduce((n, m) => n + m.captures.length, 0),
     publicState: (state) => ({ ...(state as DraughtsState), history: [], repetitions: {} }),
   },
@@ -93,7 +95,6 @@ const RULES: Record<DuelGame, DuelRules> = {
       }
     },
     end: (state, winner, reason) => endAwaleGame(state as AwaleState, winner, reason),
-    clockMs: AWALE_CLOCK_MS,
     captures: (state, side) => (state as AwaleState).history.filter((m) => m.side === side && m.seeds > 0).length,
     publicState: (state) => ({ ...(state as AwaleState), history: [], repetitions: {} }),
   },
@@ -105,6 +106,7 @@ export interface DuelMember {
   socketId: string | null;
   userId?: number;
   forfeitTimer?: NodeJS.Timeout;
+  lastReactionAt?: number;
   /** Device and address the member last connected from. */
   origin?: Origin;
 }
@@ -138,6 +140,8 @@ export interface DuelRoom {
   wager?: StakeTable;
   /** Made by quick match. */
   quick?: boolean;
+  /** Thinking time per player in minutes, picked by the host; DEFAULT_DUEL_MINUTES otherwise. */
+  minutes?: number;
   /** Quick match with a stake: players and stake are fixed, no rematch. */
   matched?: boolean;
   /** Id of the last game counted for the players' progress. */
@@ -155,8 +159,8 @@ type SavedDuelRoom = Omit<DuelRoom, 'members' | 'rematchVotes' | 'timer'> & {
 };
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-/** Mobile networks drop often: a player has this long to come back before losing. */
-export const DUEL_DISCONNECT_FORFEIT_MS = 60_000;
+/** Mobile networks drop often: a player has this long to come back before losing (their clock keeps running meanwhile). */
+export const DUEL_DISCONNECT_FORFEIT_MS = 3 * 60_000;
 /** Shape of a saved room; bump it when old saves can't be read (they are then dropped and refunded). */
 const LIVE_ROOM_VERSION = 1;
 const MAX_MEMBERS = 10;
@@ -168,7 +172,10 @@ export class DuelRoomError extends Error {}
 export class DuelManager {
   private rooms = new Map<string, DuelRoom>();
 
-  constructor(private onChange: (room: DuelRoom) => void) {}
+  constructor(
+    private onChange: (room: DuelRoom) => void,
+    private onReaction: (room: DuelRoom, message: DuelReactionMessage) => void = () => {},
+  ) {}
 
   get(code: string): DuelRoom | undefined {
     return this.rooms.get(code.toUpperCase());
@@ -373,6 +380,15 @@ export class DuelManager {
     this.touch(room);
   }
 
+  setMinutes(room: DuelRoom, token: string, minutes: number) {
+    this.assertHost(room, token);
+    if (room.quick) throw new DuelRoomError('Le temps se choisit dans un salon privé.');
+    if (this.playing(room)) throw new DuelRoomError('La partie a déjà commencé.');
+    if (!isDuelMinutes(minutes)) throw new DuelRoomError('Temps de jeu inconnu.');
+    room.minutes = minutes;
+    this.touch(room);
+  }
+
   start(room: DuelRoom, token: string) {
     this.assertHost(room, token);
     if (room.quick) throw new DuelRoomError(MATCHED_ROOM_ERROR);
@@ -408,6 +424,7 @@ export class DuelManager {
     if (this.chargeClock(room)) return;
     room.game = RULES[room.kind].play(game, payload);
     room.turnStartedAt = Date.now();
+    if (room.clock) room.clock[side] += DUEL_INCREMENT_MS;
     // Playing a move turns down the opponent's draw offer.
     if (room.drawOffer && room.drawOffer !== side) room.drawOffer = null;
     this.touch(room);
@@ -436,6 +453,17 @@ export class DuelManager {
     if (!side || room.drawOffer !== otherSide(side)) return;
     room.drawOffer = null;
     this.touch(room);
+  }
+
+  /** Sends a quick reaction from a player to the room; spectators can't, and spamming is ignored. */
+  react(room: DuelRoom, token: string, reaction: string) {
+    const side = this.sideOf(room, token);
+    if (!side) throw new DuelRoomError('Seuls les joueurs peuvent réagir.');
+    const member = room.members.get(token)!;
+    const now = Date.now();
+    if (member.lastReactionAt && now - member.lastReactionAt < REACTION_COOLDOWN_MS) return;
+    member.lastReactionAt = now;
+    this.onReaction(room, { side, reaction });
   }
 
   view(room: DuelRoom, token: string | undefined): DuelRoomView {
@@ -472,6 +500,8 @@ export class DuelManager {
       stake: room.stake ? this.stakeView(room.stake) : null,
       wager: room.wager?.id ?? null,
       matched: !!room.quick,
+      minutes: room.minutes ?? DEFAULT_DUEL_MINUTES,
+      firstMove: this.firstMoveDeadline(room),
     } as DuelRoomView;
   }
 
@@ -532,7 +562,8 @@ export class DuelManager {
     const rules = RULES[room.kind];
     room.game = rules.newGame();
     room.startedAt = Date.now();
-    room.clock = { white: rules.clockMs, black: rules.clockMs };
+    const clockMs = (room.minutes ?? DEFAULT_DUEL_MINUTES) * 60_000;
+    room.clock = { white: clockMs, black: clockMs };
     room.turnStartedAt = Date.now();
     room.drawOffer = null;
     room.rematchVotes.clear();
@@ -627,13 +658,32 @@ export class DuelManager {
     }
   }
 
-  /** Ends the game when the side to move runs out of time. */
+  /** While the side to move hasn't played yet in this game, when its first move is due. */
+  private firstMoveDeadline(room: DuelRoom): { side: Side; endsIn: number } | null {
+    const game = room.game;
+    if (!game || game.status !== 'playing') return null;
+    const history = game.history as { side: Side }[];
+    if (history.some((m) => m.side === game.turn)) return null;
+    return { side: game.turn, endsIn: Math.max(0, room.turnStartedAt + DUEL_FIRST_MOVE_MS - Date.now()) };
+  }
+
+  /** Ends the game when the side to move runs out of time, or cancels it when a first move doesn't come. */
   private schedule(room: DuelRoom) {
     if (room.timer) clearTimeout(room.timer);
     room.timer = null;
     const game = room.game;
     if (!game || game.status !== 'playing' || !room.clock) return;
     const left = room.clock[game.turn] - (Date.now() - room.turnStartedAt);
+    const first = this.firstMoveDeadline(room);
+    if (first && first.endsIn < left) {
+      room.timer = setTimeout(() => {
+        room.timer = null;
+        // Nobody loses a game that never really started: both stakes are given back.
+        if (this.firstMoveDeadline(room)?.endsIn === 0) this.finish(room, null, 'aborted');
+        else this.schedule(room);
+      }, first.endsIn + 50);
+      return;
+    }
     room.timer = setTimeout(() => {
       room.timer = null;
       this.chargeClock(room);

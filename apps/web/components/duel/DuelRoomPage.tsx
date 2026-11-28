@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { otherSide, type DuelGame, type DuelRoomViewOf, type RoomStake, type Side } from '@ludo/engine';
+import { useCallback, useEffect, useState } from 'react';
+import { DUEL_FIRST_MOVE_MS, DUEL_INCREMENT_MS, DUEL_MINUTES, DUEL_REACTIONS, otherSide, type DuelGame, type DuelRoomViewOf, type RoomStake, type Side } from '@ludo/engine';
 import { AppBar } from '@/components/AppBar';
 import { CoinAmount } from '@/components/Coins';
 import { Icon } from '@/components/Icons';
@@ -14,7 +14,9 @@ import { AdultRequiredBanner } from '@/components/AdultNotice';
 import { StakePicker } from '@/components/StakePicker';
 import { getStoredName, storeName } from '@/lib/socket';
 import { refreshProfile, useProfile } from '@/lib/profile';
-import { useDuelRoom, type DuelActions as Actions } from '@/lib/useDuelRoom';
+import { useDuelReactions, useDuelRoom, type DuelActions as Actions } from '@/lib/useDuelRoom';
+import { useReactionBubbles } from '@/lib/reactions';
+import { ReactionButton } from '@/components/ReactionPicker';
 import { GameButton, ResultHeader, useTick } from './DuelFrame';
 import { DUEL_UI, type DuelUi } from './duelGames';
 import { tr } from '@/lib/i18n';
@@ -52,6 +54,9 @@ export function DuelRoomPage({ kind }: { kind: DuelGame }) {
     actions.leave();
     router.push(room?.matched ? ui.base : `${ui.base}/salon`);
   };
+
+  /** Goes to another screen without leaving: the floating shortcut brings the player back. */
+  const stepOut = () => router.push(room?.matched ? ui.base : `${ui.base}/salon`);
 
   if (!nameChecked) return null;
 
@@ -121,7 +126,7 @@ export function DuelRoomPage({ kind }: { kind: DuelGame }) {
         </div>
       )}
       {room.game ? (
-        <OnlineGame room={room} receivedAt={receivedAt} actions={actions} onQuit={quit} />
+        <OnlineGame room={room} receivedAt={receivedAt} actions={actions} onQuit={quit} onStepOut={stepOut} />
       ) : (
         <Lobby room={room} actions={actions} onQuit={quit} />
       )}
@@ -153,7 +158,7 @@ function Lobby({ room, actions, onQuit }: { room: DuelRoomViewOf<DuelGame>; acti
       <AppBar title={ui.roomTitle} subtitle={room.isHost ? tr('Tu es l’hôte', 'You’re the host') : tr('En attente du lancement', 'Waiting for the start')}
         backHref={`${ui.base}/salon`}
         backText={tr('Salons', 'Rooms')}
-        backLabel={tr('Quitter le salon', 'Leave the room')}
+        backLabel={tr('Retour aux salons', 'Back to rooms')}
       />
       <main className="mx-auto flex max-w-lg flex-col gap-4 px-4 pt-4 pb-36">
         <section className="rounded-[28px] bg-[#1f2c33] p-4 text-center">
@@ -219,9 +224,40 @@ function Lobby({ room, actions, onQuit }: { room: DuelRoomViewOf<DuelGame>; acti
         ) : null}
         {!room.isHost && room.wager?.startsWith('premium-') && <AdultRequiredBanner />}
 
+        <section className="rounded-[28px] bg-[#1f2c33] p-4">
+          <p className="mb-2 px-1 text-[13px] font-medium text-[#00a884]">{tr('Temps de jeu par joueur', 'Thinking time per player')}</p>
+          <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label={tr('Temps de jeu par joueur', 'Thinking time per player')}>
+            {DUEL_MINUTES.map((m) => {
+              const on = room.minutes === m;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  disabled={!room.isHost}
+                  onClick={() => actions.setMinutes(m)}
+                  className={`h-11 rounded-2xl text-[15px] font-semibold transition active:scale-95 ${
+                    on ? 'bg-[#00a884] text-[#0b141a]' : room.isHost ? 'bg-[#0b141a] text-[#e9edef]' : 'bg-[#0b141a] text-[#8696a0] opacity-60'
+                  }`}
+                >
+                  {m} min
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2.5 px-1 text-[12.5px] leading-snug text-[#8696a0]">
+            {tr(
+              `+ ${DUEL_INCREMENT_MS / 1000} s à chaque coup joué. Si un joueur ne joue pas son premier coup en ${DUEL_FIRST_MOVE_MS / 1000} s, la partie est annulée et les mises rendues.`,
+              `+ ${DUEL_INCREMENT_MS / 1000} s for every move played. If a player doesn’t make their first move within ${DUEL_FIRST_MOVE_MS / 1000} s, the game is cancelled and stakes returned.`,
+            )}{' '}
+            {!room.isHost && tr('L’hôte choisit le temps.', 'The host picks the time.')}
+          </p>
+        </section>
+
         <p className="flex items-start gap-3 px-2 text-[13px] text-[#8696a0]">
           <Icon.Timer size={18} className="mt-px shrink-0" />
-          {tr(`${ui.clockMs / 60_000} minutes de réflexion par joueur.`, `${ui.clockMs / 60_000} minutes of thinking time per player.`)} {ui.sidesText}
+          {ui.sidesText}
         </p>
       </main>
 
@@ -256,7 +292,19 @@ function Lobby({ room, actions, onQuit }: { room: DuelRoomViewOf<DuelGame>; acti
   );
 }
 
-function OnlineGame({ room, receivedAt, actions, onQuit }: { room: DuelRoomViewOf<DuelGame>; receivedAt: number; actions: Actions; onQuit: () => void }) {
+function OnlineGame({
+  room,
+  receivedAt,
+  actions,
+  onQuit,
+  onStepOut,
+}: {
+  room: DuelRoomViewOf<DuelGame>;
+  receivedAt: number;
+  actions: Actions;
+  onQuit: () => void;
+  onStepOut: () => void;
+}) {
   const ui = DUEL_UI[room.kind] as unknown as DuelUi;
   const View = ui.View;
   const game = room.game!;
@@ -276,6 +324,12 @@ function OnlineGame({ room, receivedAt, actions, onQuit }: { room: DuelRoomViewO
     return room.clock.running === side ? base - (now - receivedAt) : base;
   };
   const names = { white: nameOf('white'), black: nameOf('black') };
+  const reactions = useReactionBubbles<Side>(you ? [you] : []);
+  const { show } = reactions;
+  useDuelReactions(useCallback((message) => show({ color: message.side, reaction: message.reaction }), [show]));
+  const reactionButton = you && room.players.length === 2 && (
+    <ReactionButton onReact={actions.react} hidden={reactions.hidden} onHiddenChange={reactions.setHidden} reactions={DUEL_REACTIONS} />
+  );
 
   const payoutKey = room.stake
     ? `${game.id}:${room.stake.payout ? 'paid' : 'open'}`
@@ -292,7 +346,18 @@ function OnlineGame({ room, receivedAt, actions, onQuit }: { room: DuelRoomViewO
   const opponentAsked = !!you && room.rematch.includes(otherSide(you));
   const opponentGone = room.players.length < 2;
 
-  const banner = offerFromOpponent ? (
+  const firstMoveLeft = room.firstMove ? Math.max(0, room.firstMove.endsIn - (now - receivedAt)) : null;
+  const banner = room.firstMove && firstMoveLeft !== null && playing && !offerFromOpponent ? (
+    <div className="flex items-center gap-2 rounded-2xl bg-amber-500/10 px-3 py-2 text-[13.5px] text-amber-100">
+      <Icon.Timer size={18} className="shrink-0" />
+      <span className="min-w-0 flex-1">
+        {room.firstMove.side === you
+          ? tr('Joue ton premier coup, sinon la partie est annulée.', 'Play your first move, or the game is cancelled.')
+          : tr(`${nameOf(room.firstMove.side)} doit jouer son premier coup, sinon la partie est annulée et remboursée.`, `${nameOf(room.firstMove.side)} must play their first move, or the game is cancelled and refunded.`)}
+      </span>
+      <span className="font-mono font-semibold tabular-nums">{Math.ceil(firstMoveLeft / 1000)} s</span>
+    </div>
+  ) : offerFromOpponent ? (
     <div className="pop-in flex items-center gap-2 rounded-2xl bg-[#53bdeb]/15 px-3 py-2">
       <Icon.Handshake size={20} className="shrink-0 text-[#53bdeb]" />
       <span className="min-w-0 flex-1 text-[13.5px]">{tr(`${nameOf(otherSide(you!))} propose la nulle.`, `${nameOf(otherSide(you!))} offers a draw.`)}</span>
@@ -324,13 +389,13 @@ function OnlineGame({ room, receivedAt, actions, onQuit }: { room: DuelRoomViewO
         subtitle={
           room.spectators
             ? tr(`${room.spectators} spectateur${room.spectators > 1 ? 's' : ''}`, `${room.spectators} spectator${room.spectators > 1 ? 's' : ''}`)
-            : ui.long
+            : tr(`${ui.long} · ${room.minutes} min + ${DUEL_INCREMENT_MS / 1000} s`, `${ui.long} · ${room.minutes} min + ${DUEL_INCREMENT_MS / 1000} s`)
         }
         onBack={() => (playing && you ? setConfirm('quit') : onQuit())}
         backLabel={tr('Quitter la partie', 'Leave the game')}
         state={game}
-        top={{ name: nameOf(otherSide(bottomSide)), side: otherSide(bottomSide), clockMs: clockOf(otherSide(bottomSide)), connected: seatOf(otherSide(bottomSide))?.connected ?? false }}
-        bottom={{ name: nameOf(bottomSide), side: bottomSide, clockMs: clockOf(bottomSide), connected: seatOf(bottomSide)?.connected ?? false, you: !!you }}
+        top={{ name: nameOf(otherSide(bottomSide)), side: otherSide(bottomSide), clockMs: clockOf(otherSide(bottomSide)), connected: seatOf(otherSide(bottomSide))?.connected ?? false, bubble: reactions.bubbles[otherSide(bottomSide)], bubbleAt: 'below' }}
+        bottom={{ name: nameOf(bottomSide), side: bottomSide, clockMs: clockOf(bottomSide), connected: seatOf(bottomSide)?.connected ?? false, you: !!you, bubble: reactions.bubbles[bottomSide], bubbleAt: 'above' }}
         flipped={bottomSide === 'black'}
         interactive={playing && !!you && game.turn === you}
         onMove={actions.move}
@@ -338,6 +403,7 @@ function OnlineGame({ room, receivedAt, actions, onQuit }: { room: DuelRoomViewO
         toolbar={
           playing && you ? (
             <>
+              {reactionButton}
               <GameButton onClick={actions.draw} disabled={youOffered} icon={<Icon.Handshake size={18} />}>
                 {youOffered ? tr('Nulle proposée', 'Draw offered') : offerFromOpponent ? tr('Accepter la nulle', 'Accept the draw') : tr('Proposer la nulle', 'Offer a draw')}
               </GameButton>
@@ -345,7 +411,9 @@ function OnlineGame({ room, receivedAt, actions, onQuit }: { room: DuelRoomViewO
                 {tr('Abandonner', 'Resign')}
               </GameButton>
             </>
-          ) : undefined
+          ) : (
+            reactionButton || undefined
+          )
         }
         result={
           <>
@@ -423,6 +491,16 @@ function OnlineGame({ room, receivedAt, actions, onQuit }: { room: DuelRoomViewO
             {confirm === 'resign' ? tr('Abandonner', 'Resign') : tr('Quitter', 'Leave')}
           </button>
         </div>
+        {confirm === 'quit' && (
+          <div className="pb-1">
+            <button type="button" onClick={onStepOut} className="mt-2 h-12 w-full rounded-full border border-[#2a3942] text-[15px] font-semibold text-[#00a884]">
+              {tr('Sortir un moment', 'Step out for a moment')}
+            </button>
+            <p className="mt-1.5 text-center text-[12.5px] text-[#8696a0]">
+              {tr('La partie continue et ta pendule tourne pendant ton tour.', 'The game goes on and your clock runs during your turn.')}
+            </p>
+          </div>
+        )}
       </Sheet>
     </>
   );

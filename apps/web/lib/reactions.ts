@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getReaction, type Color, type Reaction, type ReactionMessage } from '@ludo/engine';
+import { getReaction, type Color, type Reaction } from '@ludo/engine';
 import { sfx } from './sound';
 
 const BUBBLE_MS = 3200;
@@ -13,13 +13,13 @@ export interface Bubble {
   key: number;
 }
 
-export type Bubbles = Partial<Record<Color, Bubble>>;
+export type Bubbles<K extends string = Color> = Partial<Record<K, Bubble>>;
 
-/** Speech bubbles shown next to each player, one per color, fading after a few seconds. */
-export function useReactionBubbles(ownColors: Color[] = []) {
-  const [bubbles, setBubbles] = useState<Bubbles>({});
+/** Speech bubbles shown next to each player, one per color (or side), fading after a few seconds. */
+export function useReactionBubbles<K extends string = Color>(ownColors: K[] = []) {
+  const [bubbles, setBubbles] = useState<Bubbles<K>>({});
   const [hidden, setHiddenState] = useState(false);
-  const timers = useRef(new Map<Color, ReturnType<typeof setTimeout>>());
+  const timers = useRef(new Map<K, ReturnType<typeof setTimeout>>());
   const counter = useRef(0);
   const own = useRef(ownColors);
   own.current = ownColors;
@@ -32,7 +32,7 @@ export function useReactionBubbles(ownColors: Color[] = []) {
     return () => all.forEach((t) => clearTimeout(t));
   }, []);
 
-  const show = useCallback((message: ReactionMessage) => {
+  const show = useCallback((message: { color: K; reaction: string }) => {
     const reaction = getReaction(message.reaction);
     if (!reaction) return;
     if (hiddenRef.current && !own.current.includes(message.color)) return;

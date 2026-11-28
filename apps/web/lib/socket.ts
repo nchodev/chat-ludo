@@ -2,6 +2,7 @@
 
 import { io, type Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@ludo/engine';
+import { trackDuelRoom, trackLudoRoom } from './activeRoom';
 
 export type LudoClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -27,6 +28,9 @@ export function deviceId(): string {
 export function getSocket(): LudoClientSocket {
   if (!socket) {
     socket = io(serverUrl(), { transports: ['websocket', 'polling'], auth: { device: deviceId() } });
+    // Registered with the socket itself, so no room state is missed whatever screen is open.
+    socket.on('room:state', trackLudoRoom);
+    socket.on('draughts:state', trackDuelRoom);
     socket.on('connect', notifyStatus);
     socket.on('disconnect', notifyStatus);
     socket.on('connect_error', notifyStatus);

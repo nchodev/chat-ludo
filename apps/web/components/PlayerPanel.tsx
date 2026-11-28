@@ -31,7 +31,7 @@ interface PlayerPanelProps {
   bubbleSide?: 'above' | 'below';
 }
 
-function ReactionBubble({
+export function ReactionBubble({
   bubble: { reaction },
   align,
   side,

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { BotLevel, Color, ReactionMessage, RoomView, Rules } from '@ludo/engine';
+import { enterRoom, forgetRoom } from './activeRoom';
 import { getSessionToken } from './profile';
 import { NOT_CONNECTED } from './connectivity';
 import { getRoomToken, getSocket, storeRoomToken, type LudoClientSocket } from './socket';
@@ -17,6 +18,7 @@ export function useOnlineRoom(code: string, name: string | null) {
     const socket = getSocket();
     const join = () => {
       setConnected(true);
+      enterRoom(code);
       socket.emit('room:join', { code, name, token: getRoomToken(code), auth: getSessionToken() }, (res) => {
         if (res.ok) {
           storeRoomToken(code, res.token);
@@ -76,7 +78,10 @@ export function useOnlineRoom(code: string, name: string | null) {
       setWager: (table: string | null) => send((s) => s.emit('room:setWager', { table }, onAck)),
       backToLobby: () => send((s) => s.emit('room:backToLobby', onAck)),
       rematch: () => send((s) => s.emit('room:rematch', onAck)),
-      leave: () => getSocket().emit('room:leave'),
+      leave: () => {
+        getSocket().emit('room:leave');
+        forgetRoom('ludo');
+      },
       react: (reaction: string) => send((s) => s.emit('game:react', { reaction })),
     };
   }, []);

@@ -5,7 +5,7 @@ import { GAME_IDS, type GameId } from './games';
 import type { FairDice } from './fair';
 import { DEFAULT_RULES, type GameState, type Rules } from './game';
 import type { ProgressSummary } from './progress';
-import type { ReactionMessage } from './reactions';
+import type { DuelReactionMessage, ReactionMessage } from './reactions';
 import type { RoomStake } from './stakes';
 
 export type SeatKind = 'empty' | 'human' | 'bot';
@@ -54,7 +54,7 @@ export interface RoomView {
 /** Time a player has for each action (rolling, then moving) in online games. */
 export const TURN_TIME_MS = 15_000;
 /** Missing this many turns in a row (the computer played them) loses the game. */
-export const MAX_TIMEOUTS = 3;
+export const MAX_TIMEOUTS = 5;
 /** Lifetime of a code proving a player is next to the shared device. */
 export interface WalletChange {
   currency: 'free' | 'premium';
@@ -131,12 +131,16 @@ export interface ClientToServerEvents {
   'draughts:leave': () => void;
   'draughts:start': (ack?: Ack) => void;
   'draughts:setWager': (payload: { table: string | null }, ack?: Ack) => void;
+  /** Host's choice of thinking time per player, in minutes (DUEL_MINUTES). */
+  'draughts:setMinutes': (payload: { minutes: number }, ack?: Ack) => void;
   'draughts:move': (payload: DuelMovePayload, ack?: Ack) => void;
   'draughts:resign': (ack?: Ack) => void;
   /** Offers a draw, or accepts the one the opponent offered. */
   'draughts:draw': (ack?: Ack) => void;
   'draughts:declineDraw': (ack?: Ack) => void;
   'draughts:rematch': (ack?: Ack) => void;
+  /** Quick emoji or phrase sent to the other player. */
+  'draughts:react': (payload: { reaction: string }) => void;
   /** `table` is a stake table id; without it the game has no stake. */
   'draughts:queue': (payload: { name: string; auth?: string; table?: string; game?: DuelGame }, ack?: Ack) => void;
   'draughts:unqueue': () => void;
@@ -410,6 +414,7 @@ export interface ServerToClientEvents {
   'social:changed': () => void;
   'draughts:state': (room: DuelRoomView) => void;
   'draughts:closed': (reason: string) => void;
+  'draughts:reaction': (message: DuelReactionMessage) => void;
   'draughts:found': (match: { code: string; token: string }) => void;
   'draughts:queue': (status: DuelQueueStatus) => void;
   'draughts:cancelled': (reason: string) => void;

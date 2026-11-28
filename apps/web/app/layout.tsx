@@ -5,6 +5,7 @@ import { ChatNotifier } from '@/components/chat/ChatNotifier';
 import { ConnectionBanner } from '@/components/ConnectionBanner';
 import { InstallPrompt } from '@/components/InstallPrompt';
 import { ReferralCapture } from '@/components/ReferralCapture';
+import { RoomShortcut } from '@/components/RoomShortcut';
 import { ServiceWorker } from '@/components/ServiceWorker';
 import { EARLY_LOCK_SCRIPT } from '@/lib/appLockScript';
 import { NavigationTracker } from '@/lib/navigation';
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-dvh font-sans antialiased">
         {children}
+        <RoomShortcut />
         <ConnectionBanner />
         <ServiceWorker />
         <InstallPrompt />

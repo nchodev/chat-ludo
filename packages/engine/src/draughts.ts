@@ -36,7 +36,9 @@ export type DraughtsEnd =
   | 'repetition'
   /** 25 moves each with only kings moved and nothing taken. */
   | 'kings-only'
-  | 'agreement';
+  | 'agreement'
+  /** A first move wasn't played in time: cancelled, stakes given back. */
+  | 'aborted';
 
 export interface DraughtsState {
   id: string;
@@ -299,6 +301,7 @@ export const END_REASON_TEXT: Record<DraughtsEnd, string> = {
   repetition: 'même position trois fois',
   'kings-only': '25 coups de dames sans prise',
   agreement: 'nulle acceptée',
+  aborted: 'premier coup non joué : partie annulée',
 };
 
 /* ---------- Computer opponent ---------- */
@@ -367,7 +370,7 @@ export function chooseDraughtsMove(state: DraughtsState, level: DraughtsBotLevel
 /* ---------- Online play ---------- */
 
 /** Thinking time of each player for a whole online game. */
-export const DRAUGHTS_CLOCK_MS = 10 * 60_000;
+export const DRAUGHTS_CLOCK_MS = 10 * 60_000; // default; rooms may pick more (DUEL_MINUTES)
 
 export type { DuelSeatView as DraughtsSeatView, DuelQueueStatus as DraughtsQueueStatus } from './duel';
 export type DraughtsRoomView = DuelRoomViewOf<'dames'>;

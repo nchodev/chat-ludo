@@ -41,7 +41,9 @@ export type AwaleEnd =
   | 'resign'
   | 'timeout'
   | 'abandon'
-  | 'agreement';
+  | 'agreement'
+  /** A first move wasn't played in time: cancelled, stakes given back. */
+  | 'aborted';
 
 export interface AwaleState {
   id: string;
@@ -190,6 +192,7 @@ export const AWALE_END_TEXT: Record<AwaleEnd, string> = {
   timeout: 'temps écoulé',
   abandon: 'partie quittée',
   agreement: 'nulle acceptée',
+  aborted: 'premier coup non joué : partie annulée',
 };
 
 /* ---------- Computer opponent ---------- */
@@ -252,4 +255,4 @@ export function chooseAwaleMove(state: AwaleState, level: AwaleBotLevel, random:
 }
 
 /** Thinking time of each player for a whole online game. */
-export const AWALE_CLOCK_MS = 5 * 60_000;
+export const AWALE_CLOCK_MS = 10 * 60_000; // default; rooms may pick more (DUEL_MINUTES)

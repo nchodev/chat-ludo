@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { MAX_TIMEOUTS, TEAMMATE, controlledColor, type Color, type GameState, type ProgressSummary } from '@ludo/engine';
 import { BackButton } from './BackButton';
+import { Icon } from './Icons';
 import { Board } from './Board';
 import { Confetti } from './Confetti';
 import { Dice, DICE_ANIMATION_MS } from './Dice';
@@ -25,7 +26,7 @@ import { RewardSummary } from './RewardSummary';
 
 export type { SeatMeta };
 
-type ReactionBubbles = ReturnType<typeof useReactionBubbles>;
+type ReactionBubbles = ReturnType<typeof useReactionBubbles<Color>>;
 
 interface GameViewProps {
   state: GameState;
@@ -37,6 +38,8 @@ interface GameViewProps {
   title: ReactNode;
   /** Called by the back button; the page decides whether to confirm or forfeit. */
   onQuit: () => void;
+  /** Shows a resign button in the header (online games you are still playing). */
+  onResign?: () => void;
   overlayActions?: ReactNode;
   /** Shown under the end-of-game actions, e.g. the dice fairness proof. */
   overlayFooter?: ReactNode;
@@ -122,6 +125,7 @@ export function GameView({
   onMove,
   title,
   onQuit,
+  onResign,
   overlayActions,
   overlayFooter,
   notice,
@@ -257,6 +261,11 @@ export function GameView({
         <header className="flex items-center gap-2">
           <BackButton onClick={onQuit} label={t('Quitter la partie', 'Leave the game')} compact />
           <div className="min-w-0 flex-1 text-center text-sm font-bold tracking-[0.2em] text-white/80">{title}</div>
+          {onResign && (
+            <button type="button" className="icon-btn text-[#f15c6d]" aria-label={t('Abandonner la partie', 'Resign the game')} title={t('Abandonner', 'Resign')} onClick={onResign}>
+              <Icon.Flag size={20} />
+            </button>
+          )}
           <button type="button" className="icon-btn" aria-label={t('Apparence', 'Appearance')} onClick={() => setLookOpen(true)}>
             🎨
           </button>

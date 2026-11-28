@@ -165,6 +165,9 @@ export default function RoomPage() {
     router.push(room?.shared ? '/local' : room?.matched ? '/ludo' : '/online');
   };
 
+  /** Goes to another screen without leaving: the floating shortcut brings the player back. */
+  const stepOut = () => router.push(room?.matched ? '/ludo' : '/online');
+
   if (!nameChecked) return null;
 
   if (!name) {
@@ -219,12 +222,16 @@ export default function RoomPage() {
           {toast}
         </div>
       )}
-      {room.game ? <OnlineGame room={room} actions={actions} onQuit={quit} /> : <Lobby room={room} actions={actions} onQuit={quit} />}
+      {room.game ? (
+        <OnlineGame room={room} actions={actions} onQuit={quit} onStepOut={stepOut} />
+      ) : (
+        <Lobby room={room} actions={actions} onQuit={quit} onStepOut={stepOut} />
+      )}
     </>
   );
 }
 
-function OnlineGame({ room, actions, onQuit }: { room: RoomView; actions: Actions; onQuit: () => void }) {
+function OnlineGame({ room, actions, onQuit, onStepOut }: { room: RoomView; actions: Actions; onQuit: () => void; onStepOut: () => void }) {
   const game = room.game!;
   const current = game.players[game.current];
   const seats = room.seats
@@ -272,6 +279,7 @@ function OnlineGame({ room, actions, onQuit }: { room: RoomView; actions: Action
       onMove={actions.move}
       title={room.shared ? 'LUDO' : room.code}
       onQuit={requestQuit}
+      onResign={running && stillPlaying && !room.shared ? () => setQuitOpen(true) : undefined}
       rewardColors={room.shared ? [] : room.you && !youForfeited ? [room.you] : []}
       online
       serverSummary={room.result}
@@ -333,6 +341,7 @@ function OnlineGame({ room, actions, onQuit }: { room: RoomView; actions: Action
       open={quitOpen}
       room={room}
       onStay={() => setQuitOpen(false)}
+      onStepOut={onStepOut}
       onQuit={() => {
         setQuitOpen(false);
         onQuit();
@@ -343,7 +352,19 @@ function OnlineGame({ room, actions, onQuit }: { room: RoomView; actions: Action
 }
 
 /** Before quitting a running game: on a shared phone everyone's stake is lost, otherwise only yours. */
-function QuitWarning({ open, room, onStay, onQuit }: { open: boolean; room: RoomView; onStay: () => void; onQuit: () => void }) {
+function QuitWarning({
+  open,
+  room,
+  onStay,
+  onStepOut,
+  onQuit,
+}: {
+  open: boolean;
+  room: RoomView;
+  onStay: () => void;
+  onStepOut: () => void;
+  onQuit: () => void;
+}) {
   const stake = room.stake;
   const premium = stake?.currency === 'premium';
   const amount = (value: number) => <CoinAmount value={value} premium={premium} size={15} className="font-semibold text-[#e9edef]" />;
@@ -392,6 +413,20 @@ function QuitWarning({ open, room, onStay, onQuit }: { open: boolean; room: Room
         <button type="button" onClick={onStay} className="btn btn-primary">
           {t('Continuer la partie', 'Keep playing')}
         </button>
+        {/* On a shared phone every seat would miss its turns, so there is no stepping out. */}
+        {!room.shared && (
+          <div>
+            <button type="button" onClick={onStepOut} className="btn btn-ghost w-full">
+              {t('Sortir un moment', 'Step out for a moment')}
+            </button>
+            <p className="mt-1.5 text-center text-[12.5px] text-[#8696a0]">
+              {t(
+                `La partie continue : l’ordinateur joue tes tours manqués, et au ${MAX_TIMEOUTS}e d’affilée tu perds.`,
+                `The game goes on: the computer plays your missed turns, and you lose at ${MAX_TIMEOUTS} in a row.`,
+              )}
+            </p>
+          </div>
+        )}
         <button type="button" onClick={onQuit} className="btn bg-[#f15c6d]/15 text-[#f15c6d]">
           {room.shared && stake ? t('Quitter, tout le monde perd sa mise', 'Leave, everyone loses their stake') : t('Quitter et abandonner', 'Leave and forfeit')}
         </button>
@@ -483,7 +518,7 @@ function RematchActions({ room, actions }: { room: RoomView; actions: Actions })
   );
 }
 
-function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; onQuit: () => void }) {
+function Lobby({ room, actions, onQuit, onStepOut }: { room: RoomView; actions: Actions; onQuit: () => void; onStepOut: () => void }) {
   const [botSeat, setBotSeat] = useState<Color | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [lookOpen, setLookOpen] = useState(false);
@@ -533,7 +568,7 @@ function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; on
     <div className="min-h-dvh bg-[#0b141a] text-[#e9edef]">
       <header className="sticky top-0 z-10 flex items-center gap-1 bg-[#1f2c33] px-1 pt-[env(safe-area-inset-top)] shadow-md">
         <div className="flex h-16 w-full items-center gap-1">
-          <BackButton onClick={onQuit} label={t('Quitter le salon', 'Leave the room')} text={t('Salons', 'Rooms')} />
+          <BackButton onClick={onStepOut} label={t('Retour aux salons', 'Back to rooms')} text={t('Salons', 'Rooms')} />
           <div className="min-w-0 flex-1 px-1">
             <h1 className="truncate text-[20px] leading-tight font-medium">{t('Salon privé', 'Private room')}</h1>
             <p className="truncate text-[13px] text-[#8696a0]">
@@ -544,7 +579,7 @@ function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; on
         </div>
       </header>
 
-      <main className="mx-auto max-w-lg pb-36">
+      <main className="mx-auto max-w-lg pb-48">
         <section className="mx-4 mt-4 rounded-[28px] bg-[#1f2c33] p-5">
           <p className="text-[12px] font-medium tracking-[0.12em] text-[#8696a0] uppercase">{t('Code du salon', 'Room code')}</p>
           <div className="mt-1 mb-4 flex items-center justify-between gap-2">
@@ -726,6 +761,9 @@ function Lobby({ room, actions, onQuit }: { room: RoomView; actions: Actions; on
               {t('En attente de l’hôte…', 'Waiting for the host…')}
             </div>
           )}
+          <button type="button" onClick={onQuit} className="mt-1 h-11 w-full text-[14px] font-medium text-[#8696a0]">
+            {t('Quitter le salon', 'Leave the room')}
+          </button>
         </div>
       </div>
 

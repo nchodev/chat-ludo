@@ -24,7 +24,7 @@ export function Sheet({ open, title, onClose, children }: SheetProps) {
 
   // Rendered at the end of the page: a blurred or transformed parent would otherwise trap it.
   return createPortal(
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-[46] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:p-6" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"

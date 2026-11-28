@@ -63,7 +63,7 @@ export default function TermsPage() {
             'Chaque joueur mise la même somme au lancement de la partie. La mise est prélevée sur tous les joueurs à la fois, ou sur aucun.',
             'Le gagnant reçoit la cagnotte, moins une commission de la plateforme comprise entre 5 % et 10 %. Le gain exact est affiché avant de jouer.',
             'Le serveur de LuChat arbitre toute la partie : lancers de dés, coups autorisés, fin de partie. Les dés en ligne sont tirés de façon vérifiable (« dés équitables ») et chaque partie peut être vérifiée à la fin.',
-            'Déconnexion : tu as 30 secondes pour revenir. Un tour non joué à temps est joué automatiquement ; trois tours manqués de suite valent abandon. Quitter volontairement une partie misée vaut abandon : ta mise revient aux autres joueurs.',
+            'Déconnexion : tu as 30 secondes pour revenir. Un tour non joué à temps est joué automatiquement ; cinq tours manqués de suite valent abandon. Quitter volontairement une partie misée vaut abandon : ta mise revient aux autres joueurs.',
             'Si une partie ne peut pas aller à son terme à cause d’un incident technique de notre côté, les mises sont remboursées.',
             'Les parties sur un seul écran ne peuvent pas être misées en pièces Premium.',
           ]}

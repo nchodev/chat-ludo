@@ -9,6 +9,18 @@ import type { RoomStake } from './stakes';
 
 export type DuelGame = 'dames' | 'awale';
 
+/** Thinking time a private room's host can pick, in minutes per player; quick match uses the default. */
+export const DUEL_MINUTES = [10, 15, 20, 30];
+export const DEFAULT_DUEL_MINUTES = 10;
+/** Added to a player's clock after each of their moves, so a won game isn't lost on time at the end. */
+export const DUEL_INCREMENT_MS = 5_000;
+/** Time to play your first move; past it the game is cancelled and the stakes given back. */
+export const DUEL_FIRST_MOVE_MS = 30_000;
+
+export function isDuelMinutes(value: unknown): value is number {
+  return typeof value === 'number' && DUEL_MINUTES.includes(value);
+}
+
 export const DUEL_GAMES: DuelGame[] = ['dames', 'awale'];
 
 export function isDuelGame(value: unknown): value is DuelGame {
@@ -50,6 +62,10 @@ export interface DuelRoomViewOf<K extends DuelGame> {
   wager: string | null;
   /** Made by quick match: both players and the stake are fixed. */
   matched: boolean;
+  /** Thinking time per player, in minutes, for the room's games. */
+  minutes: number;
+  /** The side to move hasn't played its first move yet: the game is cancelled at the end of this delay. */
+  firstMove: { side: Side; endsIn: number } | null;
 }
 
 export type DuelRoomView = { [K in DuelGame]: DuelRoomViewOf<K> }[DuelGame];

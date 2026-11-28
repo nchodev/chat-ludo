@@ -5,6 +5,8 @@ import type { DuelMovePayload, Side } from '@ludo/engine';
 import { BackButton } from '../BackButton';
 import { Icon } from '../Icons';
 import { tr } from '@/lib/i18n';
+import type { Bubble } from '@/lib/reactions';
+import { ReactionBubble } from '../PlayerPanel';
 
 /** A player of a two-player board game, as shown above or below the board. */
 export interface DuelSeat {
@@ -16,6 +18,9 @@ export interface DuelSeat {
   you?: boolean;
   /** Small line under the name, e.g. the computer level. */
   detail?: string;
+  /** Quick reaction the player just sent, and where it pops (toward the board). */
+  bubble?: Bubble;
+  bubbleAt?: 'above' | 'below';
 }
 
 /** What every game's screen takes, so the online room and quick match pages work for all of them. */
@@ -61,7 +66,7 @@ export function useTick(active: boolean, ms = 250) {
 export function PlayerBar({ seat, turn, icon, idle, badge }: { seat: DuelSeat; turn: boolean; icon: ReactNode; idle: string; badge?: ReactNode }) {
   const low = seat.clockMs != null && seat.clockMs < 30_000;
   return (
-    <div className={`flex items-center gap-3 rounded-2xl px-3 py-2 transition ${turn ? 'bg-[#1f2c33] ring-2 ring-[#00a884]' : 'bg-[#1f2c33]/60'}`}>
+    <div className={`relative flex items-center gap-3 rounded-2xl px-3 py-2 transition ${turn ? 'bg-[#1f2c33] ring-2 ring-[#00a884]' : 'bg-[#1f2c33]/60'}`}>
       <span className="relative size-10 shrink-0">
         {icon}
         {seat.connected === false && (
@@ -88,6 +93,7 @@ export function PlayerBar({ seat, turn, icon, idle, badge }: { seat: DuelSeat; t
           {formatClock(seat.clockMs)}
         </span>
       )}
+      {seat.bubble && <ReactionBubble key={seat.bubble.key} bubble={seat.bubble} align="left" side={seat.bubbleAt ?? 'above'} color="#00a884" />}
     </div>
   );
 }
@@ -145,7 +151,7 @@ export function DuelFrame({
         {board}
         <p className="min-h-5 text-center text-[13px] text-[#8696a0]">{over ? ' ' : (hint ?? ' ')}</p>
         {bottomBar}
-        {toolbar && <div className="mt-1 flex flex-wrap justify-center gap-2">{toolbar}</div>}
+        {toolbar && <div className="relative mt-1 flex flex-wrap items-center justify-center gap-2">{toolbar}</div>}
       </main>
 
       {over && result && !resultHidden && (
@@ -224,6 +230,8 @@ export function commonEnding(reason: string | null, winner: Side | null, names: 
       return tr(`${loser} a quitté la partie.`, `${loser} left the game.`);
     case 'agreement':
       return tr('Nulle acceptée par les deux joueurs.', 'Draw agreed by both players.');
+    case 'aborted':
+      return tr('Premier coup non joué à temps : partie annulée, chacun récupère sa mise.', 'A first move wasn’t played in time: game cancelled, everyone gets their stake back.');
     default:
       return null;
   }

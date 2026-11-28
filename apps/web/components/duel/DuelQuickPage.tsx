@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { potSplit, stakeTable, type Currency, type DuelGame, type StakeTable } from '@ludo/engine';
+import { DEFAULT_DUEL_MINUTES, DUEL_INCREMENT_MS, potSplit, stakeTable, type Currency, type DuelGame, type StakeTable } from '@ludo/engine';
 import { AppBar } from '@/components/AppBar';
 import { CoinAmount, CoinIcon, GemIcon } from '@/components/Coins';
 import { CustomStake } from '@/components/CustomStake';
@@ -303,7 +303,7 @@ export function DuelQuickPage({ kind }: { kind: DuelGame }) {
           <ul className="mx-4 overflow-hidden rounded-[28px] bg-[#1f2c33]">
             {[
               { icon: Icon.Groups, title: t('Un contre un', 'One on one'), text: t('Le premier joueur qui arrive à la même table', 'The first player who comes to the same table') },
-              { icon: Icon.Timer, title: t(`${ui.clockMs / 60_000} minutes chacun`, `${ui.clockMs / 60_000} minutes each`), text: t('Temps écoulé : la partie est perdue', 'Out of time: the game is lost') },
+              { icon: Icon.Timer, title: t(`${DEFAULT_DUEL_MINUTES} min + ${DUEL_INCREMENT_MS / 1000} s par coup`, `${DEFAULT_DUEL_MINUTES} min + ${DUEL_INCREMENT_MS / 1000} s per move`), text: t('Premier coup pas joué en 30 s : partie annulée et remboursée', 'No first move within 30 s: game cancelled and refunded') },
               { icon: Icon.Trophy, title: t(`${winnerPercent} % de la cagnotte`, `${winnerPercent}% of the pot`), text: t('Pour le gagnant, le reste est la commission', 'For the winner, the rest is the commission') },
               { icon: Icon.Handshake, title: t('Match nul', 'Draw'), text: t('Chacun récupère sa mise', 'Everyone gets their stake back') },
             ].map(({ icon: RowIcon, title, text }, i) => (
