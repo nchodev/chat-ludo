@@ -171,7 +171,7 @@ export function ProfileView() {
                 className={`flex flex-col items-center gap-1 rounded-2xl p-2.5 text-center ${
                   unlocked ? 'bg-amber-400/15 ring-1 ring-amber-300/40' : 'bg-white/5 opacity-60'
                 }`}
-                title={a.description}
+                title={t(a.description, a.descriptionEn)}
               >
                 {unlocked ? (
                   <span className="text-3xl">{a.icon}</span>
@@ -180,8 +180,8 @@ export function ProfileView() {
                     <Icon.Lock size={24} />
                   </span>
                 )}
-                <span className="text-xs leading-tight font-semibold">{a.name}</span>
-                <span className="text-[10px] leading-tight text-white/50">{a.description}</span>
+                <span className="text-xs leading-tight font-semibold">{t(a.name, a.nameEn)}</span>
+                <span className="text-[10px] leading-tight text-white/50">{t(a.description, a.descriptionEn)}</span>
                 {!unlocked && <CoinAmount value={a.coins} size={12} className="text-[10px] text-amber-200" />}
               </div>
             );

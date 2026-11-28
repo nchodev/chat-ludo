@@ -18,6 +18,11 @@ export const LANGS: { id: Lang; label: string; name: string }[] = [
 const KEY = 'ludo:lang';
 const listeners = new Set<() => void>();
 let current: Lang | null = null;
+/**
+ * False during the first render in the browser: pages come from the server in French, so that
+ * render must be French too or React throws it away. `LangRoot` then shows the chosen language.
+ */
+let ready = false;
 
 function isLang(value: unknown): value is Lang {
   return value === 'fr' || value === 'en';
@@ -34,9 +39,9 @@ function detect(): Lang {
   return typeof navigator !== 'undefined' && /^en\b/i.test(navigator.language) ? 'en' : 'fr';
 }
 
-/** The current language (French on the server and before the device's choice is read). */
+/** The current language (French on the server and until the page has hydrated). */
 export function getLang(): Lang {
-  if (typeof window === 'undefined') return 'fr';
+  if (typeof window === 'undefined' || !ready) return 'fr';
   if (!current) {
     current = detect();
     document.documentElement.lang = current;
@@ -53,6 +58,13 @@ export function setLang(lang: Lang) {
   }
   document.documentElement.lang = lang;
   listeners.forEach((l) => l());
+}
+
+/** Called once the page has hydrated: switches to the device's language. */
+export function markLangReady() {
+  if (ready) return;
+  ready = true;
+  if (getLang() !== 'fr') listeners.forEach((l) => l());
 }
 
 function subscribe(listener: () => void) {

@@ -16,18 +16,19 @@ import {
   type Friend,
   type SocialState,
 } from '@/lib/social';
+import { tr } from '@/lib/i18n';
 
-const longDate = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+const longDate = { format: (value: number) => new Intl.DateTimeFormat(tr('fr-FR', 'en-GB'), { day: 'numeric', month: 'long', year: 'numeric' }).format(value) };
 
 function ago(value: number) {
   const minutes = Math.max(0, Math.round((Date.now() - value) / 60_000));
-  if (minutes < 1) return 'à l’instant';
-  if (minutes < 60) return `il y a ${minutes} min`;
+  if (minutes < 1) return tr('à l’instant', 'just now');
+  if (minutes < 60) return tr(`il y a ${minutes} min`, `${minutes} min ago`);
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `il y a ${hours} h`;
+  if (hours < 24) return tr(`il y a ${hours} h`, `${hours} h ago`);
   const days = Math.round(hours / 24);
-  if (days < 30) return `il y a ${days} j`;
-  return `le ${longDate.format(value)}`;
+  if (days < 30) return tr(`il y a ${days} j`, `${days} d ago`);
+  return tr(`le ${longDate.format(value)}`, `on ${longDate.format(value)}`);
 }
 
 function SectionHeader({ title, count }: { title: string; count?: number }) {
@@ -157,7 +158,7 @@ export function FriendsTab({
       onNotice(res.message);
       return res;
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Action impossible.');
+      onError(err instanceof Error ? err.message : tr('Action impossible.', 'Could not do that.'));
       return null;
     } finally {
       setBusy(null);
@@ -172,25 +173,25 @@ export function FriendsTab({
   };
 
   const shareMe = async () => {
-    const text = `Ajoute-moi sur LuChat, mon pseudo : ${me}`;
+    const text = tr(`Ajoute-moi sur LuChat, mon pseudo : ${me}`, `Add me on LuChat, my username: ${me}`);
     const url = profileLink(me);
     try {
       if (navigator.share) await navigator.share({ title: 'LuChat', text, url });
       else {
         await navigator.clipboard.writeText(`${text}\n${url}`);
-        onNotice('Invitation copiée, colle-la à tes amis.');
+        onNotice(tr('Invitation copiée, colle-la à tes amis.', 'Invitation copied, paste it to your friends.'));
       }
     } catch (err) {
-      if (!(err instanceof DOMException && err.name === 'AbortError')) onError('Partage impossible.');
+      if (!(err instanceof DOMException && err.name === 'AbortError')) onError(tr('Partage impossible.', 'Could not share.'));
     }
   };
 
   const copyMe = async () => {
     try {
       await navigator.clipboard.writeText(me);
-      onNotice('Pseudo copié.');
+      onNotice(tr('Pseudo copié.', 'Username copied.'));
     } catch {
-      onError('Copie impossible.');
+      onError(tr('Copie impossible.', 'Could not copy.'));
     }
   };
 
@@ -213,7 +214,7 @@ export function FriendsTab({
             spellCheck={false}
             maxLength={16}
             enterKeyHint="send"
-            placeholder="Rechercher ou ajouter un pseudo"
+            placeholder={tr('Rechercher ou ajouter un pseudo', 'Search or add a username')}
             className="min-w-0 flex-1 bg-transparent text-[15.5px] text-[#e9edef] outline-none placeholder:text-[#8696a0]"
           />
           {q ? (
@@ -224,7 +225,7 @@ export function FriendsTab({
             <button
               type="button"
               onClick={() => setScanning(true)}
-              aria-label="Scanner le QR code d’un ami"
+              aria-label={tr('Scanner le QR code d’un ami', 'Scan a friend’s QR code')}
               className="-mr-1.5 grid size-8 place-items-center rounded-full text-[#00a884] active:bg-white/10"
             >
               <Icon.QrScan size={21} />
@@ -259,13 +260,13 @@ export function FriendsTab({
             <span className="block text-[12.5px] text-[#8696a0]">Ton pseudo LuChat</span>
             <span className="block truncate text-[17px] font-semibold text-[#e9edef]">{me}</span>
           </span>
-          <RoundButton label="Copier mon pseudo" onClick={copyMe}>
+          <RoundButton label={tr('Copier mon pseudo', 'Copy my username')} onClick={copyMe}>
             <Icon.Copy size={20} />
           </RoundButton>
-          <RoundButton label="Mon QR code" onClick={() => setQrOpen(true)}>
+          <RoundButton label={tr('Mon QR code', 'My QR code')} onClick={() => setQrOpen(true)}>
             <Icon.QrCode size={20} />
           </RoundButton>
-          <RoundButton label="Inviter des amis sur LuChat" onClick={shareMe} tone="accent">
+          <RoundButton label={tr('Inviter des amis sur LuChat', 'Invite friends to LuChat')} onClick={shareMe} tone="accent">
             <Icon.Share size={20} />
           </RoundButton>
         </div>
@@ -273,17 +274,17 @@ export function FriendsTab({
 
       {!q && incoming.length > 0 && (
         <section>
-          <SectionHeader title="Invitations reçues" count={incoming.length} />
+          <SectionHeader title={tr('Invitations reçues', 'Requests received')} count={incoming.length} />
           <ul>
             {incoming.map((request) => (
               <li key={request.username} className="flex items-center gap-3 px-4 py-2">
                 <Avatar name={request.username} size={48} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[16px] text-[#e9edef]">{request.username}</span>
-                  <span className="block truncate text-[13px] text-[#8696a0]">Veut devenir ton ami · {ago(request.createdAt)}</span>
+                  <span className="block truncate text-[13px] text-[#8696a0]">{tr('Veut devenir ton ami', 'Wants to be your friend')} · {ago(request.createdAt)}</span>
                 </span>
                 <RoundButton
-                  label={`Refuser ${request.username}`}
+                  label={tr(`Refuser ${request.username}`, `Decline ${request.username}`)}
                   tone="danger"
                   disabled={!!busy}
                   onClick={() => act(`decline:${request.username}`, () => respondToFriendRequest(request.username, 'decline'))}
@@ -291,7 +292,7 @@ export function FriendsTab({
                   <Icon.Close size={20} />
                 </RoundButton>
                 <RoundButton
-                  label={`Accepter ${request.username}`}
+                  label={tr(`Accepter ${request.username}`, `Accept ${request.username}`)}
                   tone="accent"
                   disabled={!!busy}
                   onClick={async () => {
@@ -310,11 +311,11 @@ export function FriendsTab({
       {friends.length > 0 && (
         <section>
           <SectionHeader
-            title={q ? 'Résultats' : onlineCount ? `Amis · ${onlineCount} en ligne` : 'Amis'}
+            title={q ? tr('Résultats', 'Results') : onlineCount ? tr(`Amis · ${onlineCount} en ligne`, `Friends · ${onlineCount} online`) : tr('Amis', 'Friends')}
             count={q ? shown.length : friends.length}
           />
           {shown.length === 0 ? (
-            <p className="px-6 py-6 text-center text-[14px] text-[#8696a0]">Aucun ami ne correspond à « {q} ».</p>
+            <p className="px-6 py-6 text-center text-[14px] text-[#8696a0]">{tr(`Aucun ami ne correspond à « ${q} ».`, `No friend matches “${q}”.`)}</p>
           ) : (
             <ul>
               {shown.map((friend) => {
@@ -332,11 +333,11 @@ export function FriendsTab({
                       <span className="min-w-0 flex-1 border-b border-[#222d34] py-3">
                         <span className="block truncate text-[16px] text-[#e9edef]">{friend.username}</span>
                         <span className="block truncate text-[13px] text-[#8696a0]">
-                          {isOnline && <span className="text-[#25d366]">En ligne · </span>}
-                          Niveau {friend.level} · {friend.wins} victoire{friend.wins > 1 ? 's' : ''}
+                          {isOnline && <span className="text-[#25d366]">{tr('En ligne · ', 'Online · ')}</span>}
+                          {tr(`Niveau ${friend.level} · ${friend.wins} victoire${friend.wins > 1 ? 's' : ''}`, `Level ${friend.level} · ${friend.wins} win${friend.wins === 1 ? '' : 's'}`)}
                         </span>
                       </span>
-                      <RoundButton label={`Discuter avec ${friend.username}`} onClick={() => onOpenChat(friend.username)}>
+                      <RoundButton label={tr(`Discuter avec ${friend.username}`, `Chat with ${friend.username}`)} onClick={() => onOpenChat(friend.username)}>
                         <Icon.Chat size={21} />
                       </RoundButton>
                     </div>
@@ -350,7 +351,7 @@ export function FriendsTab({
 
       {!q && outgoing.length > 0 && (
         <section>
-          <SectionHeader title="Invitations envoyées" count={outgoing.length} />
+          <SectionHeader title={tr('Invitations envoyées', 'Requests sent')} count={outgoing.length} />
           <ul>
             {outgoing.map((request) => (
               <li key={request.username} className="flex items-center gap-3 px-4 py-2">
@@ -361,7 +362,7 @@ export function FriendsTab({
                   <span className="block truncate text-[15.5px] text-[#e9edef]">{request.username}</span>
                   <span className="flex items-center gap-1 text-[13px] text-[#8696a0]">
                     <Icon.Hourglass size={14} />
-                    En attente · {ago(request.createdAt)}
+                    {tr('En attente', 'Pending')} · {ago(request.createdAt)}
                   </span>
                 </span>
                 <button
@@ -370,7 +371,7 @@ export function FriendsTab({
                   onClick={() => act(`cancel:${request.username}`, () => cancelFriendRequest(request.username))}
                   className="h-9 rounded-full px-3.5 text-[14px] font-medium text-[#00a884] active:bg-white/5 disabled:opacity-40"
                 >
-                  Annuler
+                  {tr("Annuler", "Cancel")}
                 </button>
               </li>
             ))}
@@ -383,9 +384,9 @@ export function FriendsTab({
           <span className="relative mb-5 grid size-24 place-items-center rounded-full bg-gradient-to-br from-[#00a884]/25 to-[#00a884]/5 text-[#00a884] ring-1 ring-[#00a884]/30">
             <Icon.Groups size={46} />
           </span>
-          <h2 className="text-[19px] font-semibold text-[#e9edef]">Joue avec tes amis</h2>
+          <h2 className="text-[19px] font-semibold text-[#e9edef]">{tr('Joue avec tes amis', 'Play with your friends')}</h2>
           <p className="mt-2 max-w-xs text-[14px] leading-relaxed text-[#8696a0]">
-            Tape le pseudo d’un ami dans la barre ci-dessus pour l’inviter, ou partage le tien pour qu’il t’ajoute.
+            {tr("Tape le pseudo d’un ami dans la barre ci-dessus pour l’inviter, ou partage le tien pour qu’il t’ajoute.", "Type a friend’s username in the bar above to invite them, or share yours so they can add you.")}
           </p>
           <button
             type="button"
@@ -393,7 +394,7 @@ export function FriendsTab({
             className="mt-6 flex h-12 w-full max-w-xs items-center justify-center gap-2 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] active:opacity-90"
           >
             <Icon.Share size={20} />
-            Partager mon pseudo
+            {tr("Partager mon pseudo", "Share my username")}
           </button>
         </section>
       )}
@@ -404,30 +405,37 @@ export function FriendsTab({
             <div className="flex flex-col items-center pt-1 pb-4">
               <Avatar name={profile.username} size={88} online={online.has(profile.username)} />
               <p className={`mt-2 text-[13.5px] ${online.has(profile.username) ? 'text-[#25d366]' : 'text-[#8696a0]'}`}>
-                {online.has(profile.username) ? 'En ligne' : 'Hors ligne'}
+                {online.has(profile.username) ? tr('En ligne', 'Online') : tr('Hors ligne', 'Offline')}
               </p>
             </div>
             <div className="grid grid-cols-3 gap-2">
-              <Stat label="Niveau" value={profile.level} />
-              <Stat label="Victoires" value={profile.wins} />
-              <Stat label="XP" value={profile.xp.toLocaleString('fr-FR')} />
+              <Stat label={tr('Niveau', 'Level')} value={profile.level} />
+              <Stat label={tr('Victoires', 'Wins')} value={profile.wins} />
+              <Stat label="XP" value={profile.xp.toLocaleString(tr('fr-FR', 'en-GB'))} />
             </div>
-            <p className="mt-3 text-center text-[12.5px] text-[#8696a0]">Amis depuis le {longDate.format(profile.since)}</p>
+            <p className="mt-3 text-center text-[12.5px] text-[#8696a0]">{tr(`Amis depuis le ${longDate.format(profile.since)}`, `Friends since ${longDate.format(profile.since)}`)}</p>
             <div className="mt-3 -mx-2 flex flex-col">
               <SheetRow
                 icon={<Icon.Chat size={22} />}
-                label="Envoyer un message"
+                label={tr('Envoyer un message', 'Send a message')}
                 onClick={() => {
                   const name = profile.username;
                   setProfile(null);
                   onOpenChat(name);
                 }}
               />
-              <SheetRow icon={<Icon.Dice size={22} />} label="Inviter à une partie" href="/online" />
+              <SheetRow icon={<Icon.Dice size={22} />} label={tr('Inviter à une partie', 'Invite to a game')} href="/online" />
               {confirmRemove ? (
                 <div className="mx-2 mt-1 rounded-2xl bg-[#f15c6d]/10 p-3">
                   <p className="text-[14px] text-[#e9edef]">
-                    Retirer <span className="font-semibold">{profile.username}</span> de tes amis ? Vous ne pourrez plus vous écrire.
+                    {tr(
+                      <>
+                        Retirer <span className="font-semibold">{profile.username}</span> de tes amis ? Vous ne pourrez plus vous écrire.
+                      </>,
+                      <>
+                        Remove <span className="font-semibold">{profile.username}</span> from your friends? You won’t be able to message each other.
+                      </>,
+                    )}
                   </p>
                   <div className="mt-3 flex gap-2">
                     <button
@@ -435,7 +443,7 @@ export function FriendsTab({
                       onClick={() => setConfirmRemove(false)}
                       className="h-10 flex-1 rounded-full border border-[#2a3942] text-[14px] font-medium text-[#e9edef] active:bg-white/5"
                     >
-                      Annuler
+                      {tr("Annuler", "Cancel")}
                     </button>
                     <button
                       type="button"
@@ -446,12 +454,12 @@ export function FriendsTab({
                       }}
                       className="h-10 flex-1 rounded-full bg-[#f15c6d] text-[14px] font-semibold text-[#0b141a] disabled:opacity-50"
                     >
-                      Retirer
+                      {tr("Retirer", "Remove")}
                     </button>
                   </div>
                 </div>
               ) : (
-                <SheetRow icon={<Icon.PersonRemove size={22} />} label="Retirer des amis" danger onClick={() => setConfirmRemove(true)} />
+                <SheetRow icon={<Icon.PersonRemove size={22} />} label={tr('Retirer des amis', 'Remove friend')} danger onClick={() => setConfirmRemove(true)} />
               )}
             </div>
           </div>

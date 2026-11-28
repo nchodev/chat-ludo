@@ -18,6 +18,7 @@ import { Sheet } from './Sheet';
 import { CoinAmount } from './Coins';
 import { Icon } from './Icons';
 import { useAppearance } from '@/lib/appearance';
+import { tr } from '@/lib/i18n';
 import { sfx } from '@/lib/sound';
 import { BOARD_THEMES, DICE_STYLES, PAWN_STYLES, type BoardTheme } from '@/lib/themes';
 import { PawnPreview } from './Pawn';
@@ -41,10 +42,10 @@ const DEMO_STATE: GameState = (() => {
   };
 })();
 
-const CATEGORIES: { id: ShopCategory; label: string }[] = [
-  { id: 'board', label: 'Plateaux' },
-  { id: 'pawn', label: 'Pions' },
-  { id: 'dice', label: 'Dés' },
+const CATEGORIES: { id: ShopCategory; readonly label: string }[] = [
+  { id: 'board', get label() { return tr('Plateaux', 'Boards'); } },
+  { id: 'pawn', get label() { return tr('Pions', 'Pawns'); } },
+  { id: 'dice', get label() { return tr('Dés', 'Dice'); } },
 ];
 
 const ALL_ITEMS = Object.keys(SHOP_PRICES) as ShopItem[];
@@ -61,7 +62,7 @@ interface ShopEntry {
 
 function entriesOf(category: ShopCategory): ShopEntry[] {
   const styles: { id: string; name: string }[] = category === 'board' ? BOARD_THEMES : category === 'pawn' ? PAWN_STYLES : DICE_STYLES;
-  const prefix = category === 'board' ? 'le plateau' : category === 'pawn' ? 'les pions' : 'les dés';
+  const prefix = category === 'board' ? tr('le plateau', 'the board') : category === 'pawn' ? tr('les pions', 'the pawns') : tr('les dés', 'the dice');
   return styles.map((style) => {
     const item = `${category}:${style.id}` as ShopItem;
     return { item, category, id: style.id, name: style.name, label: `${prefix} ${style.name.toLowerCase()}`, price: itemPrice(item) };
@@ -106,11 +107,11 @@ function StatusLine({ equipped, owned, price, coins }: { equipped: boolean; owne
     return (
       <span className="flex items-center gap-1 text-[12.5px] font-semibold text-[#00a884]">
         <Icon.Check size={15} />
-        Équipé
+        {tr('Équipé', 'Equipped')}
       </span>
     );
   }
-  if (owned) return <span className="text-[12.5px] font-medium text-[#8696a0]">{price === 0 ? 'Gratuit' : 'Débloqué'}</span>;
+  if (owned) return <span className="text-[12.5px] font-medium text-[#8696a0]">{price === 0 ? tr('Gratuit', 'Free') : tr('Débloqué', 'Unlocked')}</span>;
   const affordable = coins >= price;
   return (
     <span
@@ -166,20 +167,20 @@ function PurchaseDialog({
 
         <dl className="mt-4 divide-y divide-white/[0.06] rounded-2xl bg-[#111b21] text-[14.5px]">
           <div className="flex items-center justify-between px-4 py-3">
-            <dt className="text-[#aebac1]">Prix</dt>
+            <dt className="text-[#aebac1]">{tr('Prix', 'Price')}</dt>
             <dd>
               <CoinAmount value={entry.price} size={18} />
             </dd>
           </div>
           <div className="flex items-center justify-between px-4 py-3">
-            <dt className="text-[#aebac1]">Ton solde</dt>
+            <dt className="text-[#aebac1]">{tr('Ton solde', 'Your balance')}</dt>
             <dd>
               <CoinAmount value={coins} size={18} />
             </dd>
           </div>
           {missing <= 0 && (
             <div className="flex items-center justify-between px-4 py-3">
-              <dt className="text-[#aebac1]">Après l’achat</dt>
+              <dt className="text-[#aebac1]">{tr('Après l’achat', 'After purchase')}</dt>
               <dd>
                 <CoinAmount value={coins - entry.price} size={18} className="text-[#8696a0]" />
               </dd>
@@ -194,10 +195,10 @@ function PurchaseDialog({
             <>
               <p className="flex items-center justify-center gap-1.5 text-center text-[14px] text-amber-200">
                 <Icon.Lock size={16} />
-                Il te manque <CoinAmount value={missing} size={15} />
+                {tr('Il te manque', 'You need')} <CoinAmount value={missing} size={15} />
               </p>
               <button type="button" onClick={onClose} className="h-12 rounded-full bg-[#00a884] text-[15px] font-semibold text-[#0b141a] transition active:scale-[0.98]">
-                Compris
+                {tr('Compris', 'Got it')}
               </button>
             </>
           ) : (
@@ -213,10 +214,10 @@ function PurchaseDialog({
                 ) : (
                   <Icon.Cart size={20} />
                 )}
-                Acheter et équiper
+                {tr('Acheter et équiper', 'Buy and equip')}
               </button>
               <button type="button" onClick={onClose} className="h-11 text-[14.5px] font-medium text-[#8696a0]">
-                Annuler
+                {tr('Annuler', 'Cancel')}
               </button>
             </>
           )}
@@ -250,7 +251,7 @@ export function AppearancePicker({ showBalance = true }: { showBalance?: boolean
 
   const equip = async (entry: ShopEntry) => {
     await update({ [entry.category]: entry.id });
-    setToast(`${entry.name} équipé`);
+    setToast(tr(`${entry.name} équipé`, `${entry.name} equipped`));
   };
 
   const choose = (entry: ShopEntry) => {
@@ -271,7 +272,7 @@ export function AppearancePicker({ showBalance = true }: { showBalance?: boolean
       await buy(buying.item);
       sfx.finish();
       await update({ [buying.category]: buying.id });
-      setToast(`${buying.name} débloqué et équipé`);
+      setToast(tr(`${buying.name} débloqué et équipé`, `${buying.name} unlocked and equipped`));
       setBuying(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Achat impossible.');
@@ -286,12 +287,12 @@ export function AppearancePicker({ showBalance = true }: { showBalance?: boolean
     <div className="flex flex-col gap-4">
       {showBalance && (
         <div className="flex items-center justify-between rounded-2xl bg-[#111b21] px-4 py-2.5">
-          <span className="text-[14px] text-[#aebac1]">Tes pièces</span>
+          <span className="text-[14px] text-[#aebac1]">{tr('Tes pièces', 'Your coins')}</span>
           <CoinAmount value={coins} size={22} className="text-[16px]" />
         </div>
       )}
 
-      <div role="tablist" aria-label="Catégories" className="grid grid-cols-3 gap-1 rounded-full bg-[#111b21] p-1">
+      <div role="tablist" aria-label={tr('Catégories', 'Categories')} className="grid grid-cols-3 gap-1 rounded-full bg-[#111b21] p-1">
         {CATEGORIES.map((c) => {
           const active = tab === c.id;
           return (
@@ -324,7 +325,7 @@ export function AppearancePicker({ showBalance = true }: { showBalance?: boolean
               type="button"
               onClick={() => choose(entry)}
               aria-pressed={equipped}
-              aria-label={owned ? `Équiper ${entry.label}` : `Acheter ${entry.label} pour ${entry.price} pièces`}
+              aria-label={owned ? tr(`Équiper ${entry.label}`, `Equip ${entry.label}`) : tr(`Acheter ${entry.label} pour ${entry.price} pièces`, `Buy ${entry.label} for ${entry.price} coins`)}
               className={`relative flex flex-col gap-2 rounded-2xl p-2 pb-2.5 text-left transition active:scale-[0.97] ${
                 equipped ? 'bg-[#00a884]/10 ring-2 ring-[#00a884]' : 'bg-[#111b21] ring-1 ring-white/[0.06]'
               }`}
@@ -391,9 +392,9 @@ export function AppearanceCard({ note }: { note?: string }) {
       <button type="button" onClick={() => setOpen(true)} className="flex w-full items-center gap-4 text-left">
         <BoardThumb theme={board} pawnId={pawn.id} className="w-20 shrink-0 p-0.5" />
         <span className="min-w-0 flex-1">
-          <span className="block font-bold">Apparence</span>
+          <span className="block font-bold">{tr('Apparence', 'Appearance')}</span>
           <span className="block text-sm text-white/70">
-            {board.name} · dés {dice.name.toLowerCase()} · pions {pawn.name.toLowerCase()}
+            {tr(`${board.name} · dés ${dice.name.toLowerCase()} · pions ${pawn.name.toLowerCase()}`, `${board.name} · ${dice.name.toLowerCase()} dice · ${pawn.name.toLowerCase()} pawns`)}
           </span>
           {note && <span className="mt-0.5 block text-xs text-white/50">{note}</span>}
         </span>

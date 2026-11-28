@@ -181,7 +181,7 @@ export function DailyCard() {
             <ChallengeRow
               key={c.id}
               icon={CHALLENGE_ICON[c.id] ?? Icon.Target}
-              label={c.label}
+              label={t(c.label, c.labelEn)}
               goal={c.goal}
               progress={daily.progress[c.id] ?? 0}
               done={daily.done.includes(c.id)}
@@ -204,7 +204,7 @@ export function DailyCard() {
             <ChallengeRow
               key={q.id}
               icon={QUEST_ICON[q.id] ?? Icon.Target}
-              label={q.label}
+              label={t(q.label, q.labelEn)}
               goal={q.goal}
               progress={weekly.progress[q.id] ?? 0}
               done={weekly.done.includes(q.id)}

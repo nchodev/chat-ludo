@@ -337,6 +337,7 @@ export const XP = { perGame: 20, perWin: 30, perCapture: 5, maxCaptureXp: 50 } a
 export interface DailyChallenge {
   id: string;
   label: string;
+  labelEn: string;
   icon: string;
   goal: number;
   coins: number;
@@ -344,13 +345,13 @@ export interface DailyChallenge {
 }
 
 export const DAILY_CHALLENGES: DailyChallenge[] = [
-  { id: 'play3', label: 'Joue 3 parties', icon: '🎲', goal: 3, coins: 30, progress: () => 1 },
-  { id: 'win2', label: 'Gagne 2 parties', icon: '🏆', goal: 2, coins: 50, progress: (r) => (r.won ? 1 : 0) },
-  { id: 'capture5', label: 'Capture 5 pions', icon: '⚔️', goal: 5, coins: 40, progress: (r) => r.captures },
-  { id: 'home8', label: 'Rentre 8 pions à la maison', icon: '🏠', goal: 8, coins: 40, progress: (r) => r.pawnsHome },
-  { id: 'hard1', label: 'Bats un ordi difficile', icon: '🤖', goal: 1, coins: 80, progress: (r) => (r.beatHardBot ? 1 : 0) },
-  { id: 'online1', label: 'Gagne une partie en ligne', icon: '🌍', goal: 1, coins: 60, progress: (r) => (r.won && r.online ? 1 : 0) },
-  { id: 'flawless1', label: 'Gagne sans perdre de pion', icon: '🛡️', goal: 1, coins: 60, progress: (r) => (r.flawless ? 1 : 0) },
+  { id: 'play3', label: 'Joue 3 parties', labelEn: 'Play 3 games', icon: '🎲', goal: 3, coins: 30, progress: () => 1 },
+  { id: 'win2', label: 'Gagne 2 parties', labelEn: 'Win 2 games', icon: '🏆', goal: 2, coins: 50, progress: (r) => (r.won ? 1 : 0) },
+  { id: 'capture5', label: 'Capture 5 pions', labelEn: 'Capture 5 pawns', icon: '⚔️', goal: 5, coins: 40, progress: (r) => r.captures },
+  { id: 'home8', label: 'Rentre 8 pions à la maison', labelEn: 'Bring 8 pawns home', icon: '🏠', goal: 8, coins: 40, progress: (r) => r.pawnsHome },
+  { id: 'hard1', label: 'Bats un ordi difficile', labelEn: 'Beat a hard computer', icon: '🤖', goal: 1, coins: 80, progress: (r) => (r.beatHardBot ? 1 : 0) },
+  { id: 'online1', label: 'Gagne une partie en ligne', labelEn: 'Win an online game', icon: '🌍', goal: 1, coins: 60, progress: (r) => (r.won && r.online ? 1 : 0) },
+  { id: 'flawless1', label: 'Gagne sans perdre de pion', labelEn: 'Win without losing a pawn', icon: '🛡️', goal: 1, coins: 60, progress: (r) => (r.flawless ? 1 : 0) },
 ];
 
 const DAILY_COUNT = 3;
@@ -391,20 +392,21 @@ export interface Activity {
 export interface WeeklyQuest {
   id: string;
   label: string;
+  labelEn: string;
   goal: number;
   coins: number;
   progress: (a: Activity) => number;
 }
 
 export const WEEKLY_QUESTS: WeeklyQuest[] = [
-  { id: 'w_play15', label: 'Joue 15 parties', goal: 15, coins: 150, progress: () => 1 },
-  { id: 'w_win7', label: 'Gagne 7 parties', goal: 7, coins: 200, progress: (a) => (a.won ? 1 : 0) },
-  { id: 'w_online3', label: 'Gagne 3 parties en ligne', goal: 3, coins: 200, progress: (a) => (a.won && a.online ? 1 : 0) },
-  { id: 'w_dames5', label: 'Joue 5 parties de dames', goal: 5, coins: 150, progress: (a) => (a.game === 'dames' ? 1 : 0) },
-  { id: 'w_dameswin2', label: 'Gagne 2 parties de dames', goal: 2, coins: 180, progress: (a) => (a.game === 'dames' && a.won ? 1 : 0) },
-  { id: 'w_ludo10', label: 'Joue 10 parties de Ludo', goal: 10, coins: 150, progress: (a) => (a.game === 'ludo' ? 1 : 0) },
-  { id: 'w_capture30', label: 'Capture 30 pions ou pièces', goal: 30, coins: 180, progress: (a) => a.captures },
-  { id: 'w_home20', label: 'Rentre 20 pions à la maison', goal: 20, coins: 150, progress: (a) => a.pawnsHome },
+  { id: 'w_play15', label: 'Joue 15 parties', labelEn: 'Play 15 games', goal: 15, coins: 150, progress: () => 1 },
+  { id: 'w_win7', label: 'Gagne 7 parties', labelEn: 'Win 7 games', goal: 7, coins: 200, progress: (a) => (a.won ? 1 : 0) },
+  { id: 'w_online3', label: 'Gagne 3 parties en ligne', labelEn: 'Win 3 online games', goal: 3, coins: 200, progress: (a) => (a.won && a.online ? 1 : 0) },
+  { id: 'w_dames5', label: 'Joue 5 parties de dames', labelEn: 'Play 5 games of draughts', goal: 5, coins: 150, progress: (a) => (a.game === 'dames' ? 1 : 0) },
+  { id: 'w_dameswin2', label: 'Gagne 2 parties de dames', labelEn: 'Win 2 games of draughts', goal: 2, coins: 180, progress: (a) => (a.game === 'dames' && a.won ? 1 : 0) },
+  { id: 'w_ludo10', label: 'Joue 10 parties de Ludo', labelEn: 'Play 10 games of Ludo', goal: 10, coins: 150, progress: (a) => (a.game === 'ludo' ? 1 : 0) },
+  { id: 'w_capture30', label: 'Capture 30 pions ou pièces', labelEn: 'Capture 30 pawns or pieces', goal: 30, coins: 180, progress: (a) => a.captures },
+  { id: 'w_home20', label: 'Rentre 20 pions à la maison', labelEn: 'Bring 20 pawns home', goal: 20, coins: 150, progress: (a) => a.pawnsHome },
 ];
 
 const WEEKLY_COUNT = 3;
@@ -454,25 +456,27 @@ function advanceWeekly(profile: Profile, activity: Activity, day: string) {
 export interface Achievement {
   id: string;
   name: string;
+  nameEn: string;
   description: string;
+  descriptionEn: string;
   icon: string;
   coins: number;
   unlocked: (p: Profile) => boolean;
 }
 
 export const ACHIEVEMENTS: Achievement[] = [
-  { id: 'tutorial', name: 'Diplômé', description: 'Termine le tutoriel', icon: '🎓', coins: 50, unlocked: (p) => p.tutorialDone },
-  { id: 'first_win', name: 'Première victoire', description: 'Gagne ta première partie', icon: '🏆', coins: 50, unlocked: (p) => p.stats.wins >= 1 },
-  { id: 'wins_10', name: 'Habitué du podium', description: 'Gagne 10 parties', icon: '🥈', coins: 100, unlocked: (p) => p.stats.wins >= 10 },
-  { id: 'wins_50', name: 'Légende du Ludo', description: 'Gagne 50 parties', icon: '🥇', coins: 300, unlocked: (p) => p.stats.wins >= 50 },
-  { id: 'captures_50', name: 'Chasseur', description: 'Capture 50 pions', icon: '⚔️', coins: 100, unlocked: (p) => p.stats.captures >= 50 },
-  { id: 'captures_200', name: 'Terreur du plateau', description: 'Capture 200 pions', icon: '🗡️', coins: 300, unlocked: (p) => p.stats.captures >= 200 },
-  { id: 'hard_win', name: 'Plus fort que la machine', description: 'Bats un ordi difficile', icon: '🤖', coins: 100, unlocked: (p) => p.stats.hardWins >= 1 },
-  { id: 'online_win', name: 'Champion en ligne', description: 'Gagne une partie en ligne', icon: '🌍', coins: 100, unlocked: (p) => p.stats.onlineWins >= 1 },
-  { id: 'flawless', name: 'Intouchable', description: 'Gagne sans perdre un seul pion', icon: '🛡️', coins: 100, unlocked: (p) => p.stats.flawlessWins >= 1 },
-  { id: 'streak_3', name: 'En feu', description: 'Gagne 3 parties d’affilée', icon: '🔥', coins: 100, unlocked: (p) => p.stats.bestWinStreak >= 3 },
-  { id: 'games_100', name: 'Accro', description: 'Joue 100 parties', icon: '🎲', coins: 200, unlocked: (p) => p.stats.games >= 100 },
-  { id: 'level_10', name: 'Vétéran', description: 'Atteins le niveau 10', icon: '⭐', coins: 200, unlocked: (p) => levelInfo(p.xp).level >= 10 },
+  { id: 'tutorial', name: 'Diplômé', description: 'Termine le tutoriel', nameEn: 'Graduate', descriptionEn: 'Finish the tutorial', icon: '🎓', coins: 50, unlocked: (p) => p.tutorialDone },
+  { id: 'first_win', name: 'Première victoire', description: 'Gagne ta première partie', nameEn: 'First win', descriptionEn: 'Win your first game', icon: '🏆', coins: 50, unlocked: (p) => p.stats.wins >= 1 },
+  { id: 'wins_10', name: 'Habitué du podium', description: 'Gagne 10 parties', nameEn: 'Podium regular', descriptionEn: 'Win 10 games', icon: '🥈', coins: 100, unlocked: (p) => p.stats.wins >= 10 },
+  { id: 'wins_50', name: 'Légende du Ludo', description: 'Gagne 50 parties', nameEn: 'Ludo legend', descriptionEn: 'Win 50 games', icon: '🥇', coins: 300, unlocked: (p) => p.stats.wins >= 50 },
+  { id: 'captures_50', name: 'Chasseur', description: 'Capture 50 pions', nameEn: 'Hunter', descriptionEn: 'Capture 50 pawns', icon: '⚔️', coins: 100, unlocked: (p) => p.stats.captures >= 50 },
+  { id: 'captures_200', name: 'Terreur du plateau', description: 'Capture 200 pions', nameEn: 'Terror of the board', descriptionEn: 'Capture 200 pawns', icon: '🗡️', coins: 300, unlocked: (p) => p.stats.captures >= 200 },
+  { id: 'hard_win', name: 'Plus fort que la machine', description: 'Bats un ordi difficile', nameEn: 'Stronger than the machine', descriptionEn: 'Beat a hard computer', icon: '🤖', coins: 100, unlocked: (p) => p.stats.hardWins >= 1 },
+  { id: 'online_win', name: 'Champion en ligne', description: 'Gagne une partie en ligne', nameEn: 'Online champion', descriptionEn: 'Win an online game', icon: '🌍', coins: 100, unlocked: (p) => p.stats.onlineWins >= 1 },
+  { id: 'flawless', name: 'Intouchable', description: 'Gagne sans perdre un seul pion', nameEn: 'Untouchable', descriptionEn: 'Win without losing a single pawn', icon: '🛡️', coins: 100, unlocked: (p) => p.stats.flawlessWins >= 1 },
+  { id: 'streak_3', name: 'En feu', description: 'Gagne 3 parties d’affilée', nameEn: 'On fire', descriptionEn: 'Win 3 games in a row', icon: '🔥', coins: 100, unlocked: (p) => p.stats.bestWinStreak >= 3 },
+  { id: 'games_100', name: 'Accro', description: 'Joue 100 parties', nameEn: 'Hooked', descriptionEn: 'Play 100 games', icon: '🎲', coins: 200, unlocked: (p) => p.stats.games >= 100 },
+  { id: 'level_10', name: 'Vétéran', description: 'Atteins le niveau 10', nameEn: 'Veteran', descriptionEn: 'Reach level 10', icon: '⭐', coins: 200, unlocked: (p) => levelInfo(p.xp).level >= 10 },
 ];
 
 export interface ProgressSummary {

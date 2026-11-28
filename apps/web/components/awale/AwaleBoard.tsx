@@ -70,7 +70,10 @@ export const AwaleBoard = memo(function AwaleBoard({ pits, legalMoves, lastMove,
         type="button"
         disabled={!playable}
         onClick={() => onPlay(pit)}
-        aria-label={`Trou ${(pit % 6) + 1}${pit < 6 ? ' Sud' : ' Nord'}, ${count} graine${count > 1 ? 's' : ''}${playable ? ', jouable' : ''}`}
+        aria-label={tr(
+          `Trou ${(pit % 6) + 1}${pit < 6 ? ' Sud' : ' Nord'}, ${count} graine${count > 1 ? 's' : ''}${playable ? ', jouable' : ''}`,
+          `Pit ${(pit % 6) + 1}${pit < 6 ? ' South' : ' North'}, ${count} seed${count === 1 ? '' : 's'}${playable ? ', playable' : ''}`,
+        )}
         className={`relative aspect-square rounded-full transition ${
           playable ? 'cursor-pointer ring-[3px] ring-[#00a884] active:scale-95' : ''
         } ${played ? 'ring-[3px] ring-amber-300/80' : ''}`}

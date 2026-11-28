@@ -13,6 +13,7 @@ import {
 import { BASE_ORIGIN, HOME_COLUMN, TRACK, pawnCenter } from '@/lib/board';
 import { DEFAULT_BOARD_THEME, DEFAULT_PAWN_STYLE, type BoardTheme, type PawnStyle } from '@/lib/themes';
 import { PawnDefs, PawnShape } from './Pawn';
+import { tr } from '@/lib/i18n';
 
 interface BoardProps {
   state: GameState;
@@ -131,7 +132,7 @@ export function Board({ state, pawns = state.pawns, movableColor = null, onPawnC
       viewBox="-0.2 -0.2 15.4 15.4"
       className="block h-auto w-full select-none touch-manipulation"
       role="img"
-      aria-label="Plateau de Ludo"
+      aria-label={tr('Plateau de Ludo', 'Ludo board')}
     >
       <defs>
         <PawnDefs palette={colors} gradientId={ids.pawn} glowId={ids.glow} />
@@ -283,7 +284,7 @@ export function Board({ state, pawns = state.pawns, movableColor = null, onPawnC
             style={{ transform: `translate(${p.x}px, ${p.y}px)` }}
             onClick={p.movable ? () => onPawnClick?.(p.pawn) : undefined}
             role={p.movable ? 'button' : undefined}
-            aria-label={p.movable ? `Déplacer le pion ${p.pawn + 1}` : undefined}
+            aria-label={p.movable ? tr(`Déplacer le pion ${p.pawn + 1}`, `Move pawn ${p.pawn + 1}`) : undefined}
             cursor={p.movable ? 'pointer' : undefined}
           >
             <g transform={`rotate(${-rotation}) scale(${p.scale})`}>

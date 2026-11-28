@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { DRAUGHTS_SIZE, draughtsCoords, isKing, type DraughtsMove, type Piece, type PlayedMove } from '@ludo/engine';
 import { Icon } from '../Icons';
+import { tr } from '@/lib/i18n';
 
 /** Time a piece takes to go from one square to the next of its path. */
 const STEP_MS = 190;
@@ -114,7 +115,7 @@ export function DraughtsBoard({ board, ids, legalMoves, lastMove, flipped = fals
           type="button"
           disabled={!dark}
           onClick={() => tap(square)}
-          aria-label={dark ? `Case ${square}` : undefined}
+          aria-label={dark ? tr(`Case ${square}`, `Square ${square}`) : undefined}
           tabIndex={dark && interactive ? 0 : -1}
           className="relative"
           style={{ background: dark ? (isLast ? '#9a7a32' : '#76502f') : '#e8d5b3' }}

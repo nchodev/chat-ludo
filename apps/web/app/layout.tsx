@@ -4,6 +4,7 @@ import { AppLock } from '@/components/AppLock';
 import { ChatNotifier } from '@/components/chat/ChatNotifier';
 import { ConnectionBanner } from '@/components/ConnectionBanner';
 import { InstallPrompt } from '@/components/InstallPrompt';
+import { LangRoot } from '@/components/LangRoot';
 import { ReferralCapture } from '@/components/ReferralCapture';
 import { RoomShortcut } from '@/components/RoomShortcut';
 import { ServiceWorker } from '@/components/ServiceWorker';
@@ -37,15 +38,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: EARLY_LOCK_SCRIPT }} />
       </head>
       <body className="min-h-dvh font-sans antialiased">
-        {children}
-        <RoomShortcut />
-        <ConnectionBanner />
-        <ServiceWorker />
-        <InstallPrompt />
-        <ChatNotifier />
-        <NavigationTracker />
-        <ReferralCapture />
-        <AppLock />
+        <LangRoot>
+          {children}
+          <RoomShortcut />
+          <ConnectionBanner />
+          <ServiceWorker />
+          <InstallPrompt />
+          <ChatNotifier />
+          <NavigationTracker />
+          <ReferralCapture />
+          <AppLock />
+        </LangRoot>
       </body>
     </html>
   );

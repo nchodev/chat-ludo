@@ -35,15 +35,15 @@ export function RewardSummary({ state, summary }: { state: GameState; summary: P
     ...(summary.reward?.lines ?? []).map((line) => ({ label: rewardLineLabel(state, line), coins: line.coins })),
     ...summary.challenges.map((c) => {
       const challenge = DAILY_CHALLENGES.find((d) => d.id === c.id);
-      return { label: t(`Défi réussi : ${challenge?.label ?? c.id}`, `Challenge done: ${challenge?.label ?? c.id}`), coins: c.coins };
+      return { label: t(`Défi réussi : ${challenge?.label ?? c.id}`, `Challenge done: ${challenge?.labelEn ?? c.id}`), coins: c.coins };
     }),
     ...(summary.quests ?? []).map((q) => {
       const quest = WEEKLY_QUESTS.find((w) => w.id === q.id);
-      return { label: t(`Défi de la semaine : ${quest?.label ?? q.id}`, `Weekly challenge: ${quest?.label ?? q.id}`), coins: q.coins };
+      return { label: t(`Défi de la semaine : ${quest?.label ?? q.id}`, `Weekly challenge: ${quest?.labelEn ?? q.id}`), coins: q.coins };
     }),
     ...summary.achievements.map((a) => {
       const achievement = ACHIEVEMENTS.find((x) => x.id === a.id);
-      return { label: `Badge ${achievement?.icon ?? ''} ${achievement?.name ?? a.id}`, coins: a.coins };
+      return { label: `Badge ${achievement?.icon ?? ''} ${(achievement && t(achievement.name, achievement.nameEn)) ?? a.id}`, coins: a.coins };
     }),
     ...(summary.levelUpCoins > 0 ? [{ label: t(`Niveau ${summary.levelAfter} atteint !`, `Level ${summary.levelAfter} reached!`), coins: summary.levelUpCoins }] : []),
   ];
